@@ -368,7 +368,6 @@ export function PrecisionInputModal({
               value={coordinates}
               onChange={(e) => setCoordinates(e.target.value)}
               fill
-              growVertically
               style={{ minHeight: '120px', fontFamily: 'monospace', fontSize: '12px' }}
             />
           </FormGroup>

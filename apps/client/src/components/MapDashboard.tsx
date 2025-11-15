@@ -123,7 +123,7 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
 
   // Handle feature click
   const handleClick = useCallback(
-    (info: PickingInfo) => {
+    async (info: PickingInfo) => {
       // Close context menu if open
       setContextMenu(null);
 
@@ -131,6 +131,14 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
         // Delete mode - delete the clicked feature
         const feature = info.object as GeoJSONFeature;
         handleDeleteFeature(feature.id);
+        return;
+      }
+
+      // Handle drawing modes
+      if (drawingMode === 'point' && info.coordinate) {
+        // Create a point at the clicked location
+        const [lng, lat] = info.coordinate;
+        await handleQuickCreatePoint(lng, lat);
         return;
       }
 
@@ -368,6 +376,7 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
           mapStyle="mapbox://styles/mapbox/dark-v11"
           attributionControl={false}
           onContextMenu={handleContextMenu}
+          reuseMaps
         />
       </DeckGL>
 

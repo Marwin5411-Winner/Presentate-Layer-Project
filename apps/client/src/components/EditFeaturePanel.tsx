@@ -181,7 +181,6 @@ export function EditFeaturePanel({
               value={customProperties}
               onChange={(e) => setCustomProperties(e.target.value)}
               fill
-              growVertically
               style={{ fontFamily: 'monospace', fontSize: '12px', minHeight: '100px' }}
             />
           </FormGroup>
