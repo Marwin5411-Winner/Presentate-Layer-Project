@@ -1,38 +1,49 @@
 import { Elysia } from 'elysia';
 import { cors } from '@elysiajs/cors';
+import { staticPlugin } from '@elysiajs/static';
 import { testConnection } from './db';
 import { routes } from './routes';
 import { websocket } from './websocket';
+import * as path from 'path';
 
 // Test database connection on startup
 await testConnection();
 
+const PORT = process.env.PORT || 3000;
+const CLIENT_DIST = path.join(import.meta.dir, '../../client/dist');
+
 /**
- * Main Elysia application
- * Serves the geospatial dashboard API and WebSocket server
+ * Production Elysia application
+ * Serves both the API and the static frontend files
  */
 const app = new Elysia()
-  // Enable CORS for development (Vite dev server on different port)
+  // Enable CORS
   .use(
     cors({
-      origin: process.env.NODE_ENV === 'production' ? false : true,
+      origin: process.env.CORS_ORIGIN || true,
       credentials: true,
     })
   )
 
-  // Health check endpoint
-  .get('/', () => ({
-    name: 'Geospatial Dashboard API',
-    version: '1.0.0',
-    status: 'running',
-    timestamp: new Date().toISOString(),
-  }))
-
-  // Mount API routes
+  // Mount API routes FIRST (before static files)
   .use(routes)
 
   // Mount WebSocket
   .use(websocket)
+
+  // Serve static files from client/dist
+  .use(
+    staticPlugin({
+      assets: CLIENT_DIST,
+      prefix: '/',
+    })
+  )
+
+  // Fallback for SPA - serve index.html for any unmatched routes
+  .get('*', ({ set }) => {
+    set.headers['content-type'] = 'text/html';
+    return Bun.file(path.join(CLIENT_DIST, 'index.html'));
+  })
 
   // Global error handler
   .onError(({ code, error, set }) => {
@@ -46,17 +57,15 @@ const app = new Elysia()
     set.status = 500;
     return {
       error: 'Internal Server Error',
-      message: process.env.NODE_ENV === 'development' ? error.message : undefined,
     };
   })
 
   // Start server
-  .listen(3000);
+  .listen(PORT);
 
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-console.log('🗺️  Geospatial Dashboard Server');
+console.log('🗺️  Geospatial Dashboard (Production)');
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-console.log(`🦊 HTTP: http://${app.server?.hostname}:${app.server?.port}`);
-console.log(`🔌 WebSocket: ws://${app.server?.hostname}:${app.server?.port}/ws`);
-console.log(`📡 API: http://${app.server?.hostname}:${app.server?.port}/api`);
+console.log(`🌐 Server: http://${app.server?.hostname}:${app.server?.port}`);
+console.log(`📂 Serving: ${CLIENT_DIST}`);
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
