@@ -133,6 +133,7 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
   const [viewState, setViewState] = useState<ViewState>(INITIAL_VIEW_STATE);
   const [hoverInfo, setHoverInfo] = useState<PickingInfo | null>(null);
   const [drawingMode, setDrawingMode] = useState<DrawingMode>('select');
+  const [selectedFeatureIndexes, setSelectedFeatureIndexes] = useState<number[]>([]);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -175,8 +176,17 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
 
       // Feature selection in select mode
       if (drawingMode === 'select' && info.object && onFeatureClick) {
+        // Update selected feature indexes
+        if (info.index !== undefined && info.index >= 0) {
+          setSelectedFeatureIndexes([info.index]);
+        }
         onFeatureClick(info.object as GeoJSONFeature);
         return true;
+      }
+
+      // Clear selection if clicking on empty area
+      if (!info.object) {
+        setSelectedFeatureIndexes([]);
       }
 
       return false;
@@ -380,6 +390,11 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
     []
   );
 
+  // Clear selection when drawing mode changes
+  useEffect(() => {
+    setSelectedFeatureIndexes([]);
+  }, [drawingMode]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -441,6 +456,7 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
 
       // Edit mode configuration
       mode: getEditMode(drawingMode),
+      selectedFeatureIndexes,
       onEdit: handleEdit,
 
       // Styling
@@ -483,6 +499,7 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
         getLineColor: [filteredData],
         getPointRadius: [filteredData],
         mode: [drawingMode],
+        selectedFeatureIndexes: [selectedFeatureIndexes],
       },
     }),
   ];
