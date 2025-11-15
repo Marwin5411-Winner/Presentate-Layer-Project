@@ -1,8 +1,17 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import Map from 'react-map-gl/mapbox';
 import { DeckGL } from '@deck.gl/react';
-import { GeoJsonLayer } from '@deck.gl/layers';
 import type { PickingInfo } from '@deck.gl/core';
+import { EditableGeoJsonLayer } from '@deck.gl-community/editable-layers';
+import {
+  DrawPolygonMode,
+  DrawRectangleMode,
+  DrawCircleFromCenterMode,
+  DrawLineStringMode,
+  DrawPointMode,
+  ModifyMode,
+  ViewMode,
+} from '@deck.gl-community/editable-layers';
 import type { GeoJSONFeatureCollection, GeoJSONFeature, ViewState, AssetType, AssetStatus } from '../types';
 import { DrawingToolbar, type DrawingMode } from './DrawingToolbar';
 import { MapContextMenu } from './MapContextMenu';
@@ -87,8 +96,38 @@ const getLineWidth = (feature: GeoJSONFeature): number => {
   return feature.properties.type === 'route' ? 3 : 2;
 };
 
-// Create a toaster instance
-const toaster = OverlayToaster.create({ position: 'top' });
+/**
+ * Map drawing toolbar modes to Deck.GL edit modes
+ */
+const getEditMode = (drawingMode: DrawingMode) => {
+  switch (drawingMode) {
+    case 'point':
+      return DrawPointMode;
+    case 'rectangle':
+      return DrawRectangleMode;
+    case 'circle':
+      return DrawCircleFromCenterMode;
+    case 'polygon':
+      return DrawPolygonMode;
+    case 'line':
+      return DrawLineStringMode;
+    case 'select':
+      return ModifyMode;
+    case 'delete':
+      return ViewMode;
+    default:
+      return ViewMode;
+  }
+};
+
+// Create a toaster instance (initialized on first use)
+let toasterInstance: any = null;
+const getToaster = async () => {
+  if (!toasterInstance) {
+    toasterInstance = await OverlayToaster.create({ position: 'top' });
+  }
+  return toasterInstance;
+};
 
 export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature, onEditComplete }: MapDashboardProps) {
   const [viewState, setViewState] = useState<ViewState>(INITIAL_VIEW_STATE);
@@ -121,9 +160,9 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
       : data.features,
   };
 
-  // Handle feature click
+  // Handle feature click (for delete mode and feature selection)
   const handleClick = useCallback(
-    async (info: PickingInfo) => {
+    (info: PickingInfo) => {
       // Close context menu if open
       setContextMenu(null);
 
@@ -131,20 +170,16 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
         // Delete mode - delete the clicked feature
         const feature = info.object as GeoJSONFeature;
         handleDeleteFeature(feature.id);
-        return;
+        return true;
       }
 
-      // Handle drawing modes
-      if (drawingMode === 'point' && info.coordinate) {
-        // Create a point at the clicked location
-        const [lng, lat] = info.coordinate;
-        await handleQuickCreatePoint(lng, lat);
-        return;
-      }
-
-      if (info.object && onFeatureClick) {
+      // Feature selection in select mode
+      if (drawingMode === 'select' && info.object && onFeatureClick) {
         onFeatureClick(info.object as GeoJSONFeature);
+        return true;
       }
+
+      return false;
     },
     [onFeatureClick, drawingMode]
   );
@@ -178,14 +213,14 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
   }) => {
     try {
       await createAsset(data);
-      toaster.show({
+      (await getToaster()).show({
         message: `Created ${data.name}`,
         intent: Intent.SUCCESS,
         icon: 'tick',
       });
     } catch (error) {
       console.error('Error creating asset:', error);
-      toaster.show({
+      (await getToaster()).show({
         message: 'Failed to create feature',
         intent: Intent.DANGER,
         icon: 'error',
@@ -205,14 +240,14 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
           coordinates: [lng, lat],
         },
       });
-      toaster.show({
+      (await getToaster()).show({
         message: 'Point created',
         intent: Intent.SUCCESS,
         icon: 'map-marker',
       });
     } catch (error) {
       console.error('Error creating point:', error);
-      toaster.show({
+      (await getToaster()).show({
         message: 'Failed to create point',
         intent: Intent.DANGER,
         icon: 'error',
@@ -233,14 +268,14 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
   ) => {
     try {
       await updateAsset(id, data);
-      toaster.show({
+      (await getToaster()).show({
         message: 'Feature updated',
         intent: Intent.SUCCESS,
         icon: 'tick',
       });
     } catch (error) {
       console.error('Error updating asset:', error);
-      toaster.show({
+      (await getToaster()).show({
         message: 'Failed to update feature',
         intent: Intent.DANGER,
         icon: 'error',
@@ -252,20 +287,98 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
   const handleDeleteFeature = async (id: string) => {
     try {
       await deleteAsset(id);
-      toaster.show({
+      (await getToaster()).show({
         message: 'Feature deleted',
         intent: Intent.SUCCESS,
         icon: 'trash',
       });
     } catch (error) {
       console.error('Error deleting asset:', error);
-      toaster.show({
+      (await getToaster()).show({
         message: 'Failed to delete feature',
         intent: Intent.DANGER,
         icon: 'error',
       });
     }
   };
+
+  // Handle edits from the EditableGeoJsonLayer
+  const handleEdit = useCallback(
+    async ({ updatedData, editType, editContext }: any) => {
+      if (editType === 'addFeature') {
+        // A new feature was drawn
+        const newFeature = editContext?.featureIndexes?.[0] !== undefined
+          ? updatedData.features[editContext.featureIndexes[0]]
+          : updatedData.features[updatedData.features.length - 1];
+
+        if (!newFeature) return;
+
+        // Determine the type based on geometry
+        let type: AssetType = 'poi';
+        if (newFeature.geometry.type === 'Polygon') {
+          type = 'zone';
+        } else if (newFeature.geometry.type === 'LineString') {
+          type = 'route';
+        } else if (newFeature.geometry.type === 'Point') {
+          type = 'poi';
+        }
+
+        // Generate a name based on the geometry type
+        const name = `New ${type} ${new Date().toLocaleTimeString()}`;
+
+        try {
+          await createAsset({
+            name,
+            type,
+            status: 'active',
+            geometry: newFeature.geometry,
+          });
+          (await getToaster()).show({
+            message: `${type} created successfully`,
+            intent: Intent.SUCCESS,
+            icon: 'map-marker',
+          });
+        } catch (error) {
+          console.error('Error creating feature:', error);
+          (await getToaster()).show({
+            message: 'Failed to create feature',
+            intent: Intent.DANGER,
+            icon: 'error',
+          });
+        }
+      } else if (editType === 'updateFeature') {
+        // An existing feature was modified
+        const updatedFeature = editContext?.featureIndexes?.[0] !== undefined
+          ? updatedData.features[editContext.featureIndexes[0]]
+          : null;
+
+        if (!updatedFeature || !updatedFeature.id) return;
+
+        try {
+          await updateAsset(updatedFeature.id, {
+            name: updatedFeature.properties.name,
+            type: updatedFeature.properties.type,
+            status: updatedFeature.properties.status,
+            geometry: updatedFeature.geometry,
+            properties: updatedFeature.properties,
+          });
+          (await getToaster()).show({
+            message: 'Feature updated',
+            intent: Intent.SUCCESS,
+            icon: 'tick',
+          });
+        } catch (error) {
+          console.error('Error updating feature:', error);
+          (await getToaster()).show({
+            message: 'Failed to update feature',
+            intent: Intent.DANGER,
+            icon: 'error',
+          });
+        }
+      }
+    },
+    []
+  );
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -322,28 +435,44 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
 
   // Create Deck.gl layers
   const layers = [
-    new GeoJsonLayer({
-      id: 'geojson-layer',
-      data: filteredData,
+    new EditableGeoJsonLayer({
+      id: 'editable-geojson-layer',
+      data: filteredData as any,
+
+      // Edit mode configuration
+      mode: getEditMode(drawingMode),
+      onEdit: handleEdit,
 
       // Styling
       filled: true,
       stroked: true,
-      pointType: 'circle',
 
       // Dynamic styling based on feature properties
-      getFillColor: (f) => getFeatureColor(f as GeoJSONFeature),
-      getLineColor: (f) => getFeatureColor(f as GeoJSONFeature),
-      getPointRadius: (f) => getPointRadius(f as GeoJSONFeature),
-      getLineWidth: (f) => getLineWidth(f as GeoJSONFeature),
+      getFillColor: (f: any) => getFeatureColor(f as GeoJSONFeature),
+      getLineColor: (f: any) => getFeatureColor(f as GeoJSONFeature),
+      getLineWidth: (f: any) => getLineWidth(f as GeoJSONFeature),
+
+      // Point styling via sub-layer props
+      _subLayerProps: {
+        geojson: {
+          getPointRadius: (f: any) => getPointRadius(f as GeoJSONFeature),
+        },
+      },
+
+      // Edit handles styling
+      getEditHandlePointColor: [255, 255, 255, 255],
+      getEditHandlePointRadius: 6,
+      editHandlePointRadiusScale: 1,
+      editHandlePointRadiusMinPixels: 4,
+      editHandlePointRadiusMaxPixels: 8,
 
       // Interaction
       pickable: true,
       autoHighlight: true,
       highlightColor: [255, 255, 255, 100],
 
-      // Click handler
-      onClick: handleClick,
+      // Click handler (for delete mode and feature selection)
+      onClick: drawingMode === 'delete' || drawingMode === 'select' ? handleClick : undefined,
 
       // Hover handler
       onHover: (info) => setHoverInfo(info),
@@ -353,6 +482,7 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
         getFillColor: [filteredData],
         getLineColor: [filteredData],
         getPointRadius: [filteredData],
+        mode: [drawingMode],
       },
     }),
   ];
@@ -402,7 +532,7 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
           longitude={contextMenu.longitude}
           latitude={contextMenu.latitude}
           onCreatePoint={handleQuickCreatePoint}
-          onCreateZone={(lng, lat) => {
+          onCreateZone={() => {
             setDrawingMode('polygon');
             setContextMenu(null);
           }}

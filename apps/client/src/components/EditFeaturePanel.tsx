@@ -87,7 +87,7 @@ export function EditFeaturePanel({
         name: name.trim(),
         type,
         status,
-        geometry: feature.geometry,
+        geometry: feature.geometry as any,
         properties,
       });
 
