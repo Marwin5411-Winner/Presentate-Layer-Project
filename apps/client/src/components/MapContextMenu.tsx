@@ -1,4 +1,4 @@
-import { Menu, MenuItem } from '@blueprintjs/core';
+import { Menu, MenuItem, MenuDivider } from '@blueprintjs/core';
 import { IconNames } from '@blueprintjs/icons';
 
 interface MapContextMenuProps {
@@ -56,7 +56,7 @@ export function MapContextMenu({
             onClose();
           }}
         />
-        <Menu.Divider />
+        <MenuDivider />
         <MenuItem
           icon={IconNames.NUMERICAL}
           text="Precision Input..."
@@ -65,7 +65,7 @@ export function MapContextMenu({
             onClose();
           }}
         />
-        <Menu.Divider />
+        <MenuDivider />
         <MenuItem
           icon={IconNames.GEOLOCATION}
           text={`${latitude.toFixed(6)}, ${longitude.toFixed(6)}`}
