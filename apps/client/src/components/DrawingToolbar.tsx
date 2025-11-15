@@ -25,17 +25,18 @@ export function DrawingToolbar({ activeMode, onModeChange, onPrecisionInput }: D
     <div
       style={{
         position: 'absolute',
-        left: '20px',
-        top: '100px',
-        zIndex: 100,
+        left: '50%',
+        bottom: '20px',
+        transform: 'translateX(-50%)',
+        zIndex: 1100,
         backgroundColor: 'rgba(30, 30, 30, 0.95)',
         borderRadius: '4px',
         padding: '8px',
         boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
       }}
     >
-      <ButtonGroup vertical minimal>
-        <Tooltip content="Select Mode (ESC)" position="right">
+      <ButtonGroup minimal>
+        <Tooltip content="Select Mode (ESC)" position="top">
           <Button
             icon={IconNames.SELECT}
             active={activeMode === 'select'}
@@ -44,7 +45,7 @@ export function DrawingToolbar({ activeMode, onModeChange, onPrecisionInput }: D
           />
         </Tooltip>
 
-        <Tooltip content="Add Point (P)" position="right">
+        <Tooltip content="Add Point (P)" position="top">
           <Button
             icon={IconNames.MAP_MARKER}
             active={activeMode === 'point'}
@@ -53,7 +54,7 @@ export function DrawingToolbar({ activeMode, onModeChange, onPrecisionInput }: D
           />
         </Tooltip>
 
-        <Tooltip content="Draw Rectangle (R)" position="right">
+        <Tooltip content="Draw Rectangle (R)" position="top">
           <Button
             icon={IconNames.WIDGET}
             active={activeMode === 'rectangle'}
@@ -62,7 +63,7 @@ export function DrawingToolbar({ activeMode, onModeChange, onPrecisionInput }: D
           />
         </Tooltip>
 
-        <Tooltip content="Draw Circle (C)" position="right">
+        <Tooltip content="Draw Circle (C)" position="top">
           <Button
             icon={IconNames.FULL_CIRCLE}
             active={activeMode === 'circle'}
@@ -71,7 +72,7 @@ export function DrawingToolbar({ activeMode, onModeChange, onPrecisionInput }: D
           />
         </Tooltip>
 
-        <Tooltip content="Draw Polygon (G)" position="right">
+        <Tooltip content="Draw Polygon (G)" position="top">
           <Button
             icon={IconNames.POLYGON_FILTER}
             active={activeMode === 'polygon'}
@@ -80,7 +81,7 @@ export function DrawingToolbar({ activeMode, onModeChange, onPrecisionInput }: D
           />
         </Tooltip>
 
-        <Tooltip content="Draw Line/Route (L)" position="right">
+        <Tooltip content="Draw Line/Route (L)" position="top">
           <Button
             icon={IconNames.TIMELINE_LINE_CHART}
             active={activeMode === 'line'}
@@ -89,9 +90,9 @@ export function DrawingToolbar({ activeMode, onModeChange, onPrecisionInput }: D
           />
         </Tooltip>
 
-        <div style={{ borderTop: '1px solid #444', margin: '8px 0' }} />
+        <div style={{ borderLeft: '1px solid #444', margin: '0 8px', height: '24px', alignSelf: 'center' }} />
 
-        <Tooltip content="Delete Feature (DEL)" position="right">
+        <Tooltip content="Delete Feature (DEL)" position="top">
           <Button
             icon={IconNames.TRASH}
             active={activeMode === 'delete'}
@@ -102,8 +103,8 @@ export function DrawingToolbar({ activeMode, onModeChange, onPrecisionInput }: D
 
         {onPrecisionInput && (
           <>
-            <div style={{ borderTop: '1px solid #444', margin: '8px 0' }} />
-            <Tooltip content="Precision Input (I)" position="right">
+            <div style={{ borderLeft: '1px solid #444', margin: '0 8px', height: '24px', alignSelf: 'center' }} />
+            <Tooltip content="Precision Input (I)" position="top">
               <Button
                 icon={IconNames.NUMERICAL}
                 onClick={onPrecisionInput}

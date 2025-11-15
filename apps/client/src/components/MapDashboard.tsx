@@ -9,7 +9,7 @@ import { MapContextMenu } from './MapContextMenu';
 import { PrecisionInputModal } from './PrecisionInputModal';
 import { EditFeaturePanel } from './EditFeaturePanel';
 import { createAsset, updateAsset, deleteAsset } from '../utils/api';
-import { Toaster, Intent } from '@blueprintjs/core';
+import { OverlayToaster, Intent } from '@blueprintjs/core';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 interface MapDashboardProps {
@@ -88,7 +88,7 @@ const getLineWidth = (feature: GeoJSONFeature): number => {
 };
 
 // Create a toaster instance
-const toaster = Toaster.create({ position: 'top' });
+const toaster = OverlayToaster.create({ position: 'top' });
 
 export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature, onEditComplete }: MapDashboardProps) {
   const [viewState, setViewState] = useState<ViewState>(INITIAL_VIEW_STATE);
