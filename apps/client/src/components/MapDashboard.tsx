@@ -1,15 +1,23 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import Map from 'react-map-gl/mapbox';
 import { DeckGL } from '@deck.gl/react';
 import { GeoJsonLayer } from '@deck.gl/layers';
 import type { PickingInfo } from '@deck.gl/core';
-import type { GeoJSONFeatureCollection, GeoJSONFeature, ViewState } from '../types';
+import type { GeoJSONFeatureCollection, GeoJSONFeature, ViewState, AssetType, AssetStatus } from '../types';
+import { DrawingToolbar, type DrawingMode } from './DrawingToolbar';
+import { MapContextMenu } from './MapContextMenu';
+import { PrecisionInputModal } from './PrecisionInputModal';
+import { EditFeaturePanel } from './EditFeaturePanel';
+import { createAsset, updateAsset, deleteAsset } from '../utils/api';
+import { Toaster, Intent } from '@blueprintjs/core';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 interface MapDashboardProps {
   data: GeoJSONFeatureCollection;
   onFeatureClick?: (feature: GeoJSONFeature) => void;
   visibleLayers?: Set<string>;
+  editFeature?: GeoJSONFeature | null;
+  onEditComplete?: () => void;
 }
 
 // Default view state (San Francisco)
@@ -79,9 +87,31 @@ const getLineWidth = (feature: GeoJSONFeature): number => {
   return feature.properties.type === 'route' ? 3 : 2;
 };
 
-export function MapDashboard({ data, onFeatureClick, visibleLayers }: MapDashboardProps) {
+// Create a toaster instance
+const toaster = Toaster.create({ position: 'top' });
+
+export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature, onEditComplete }: MapDashboardProps) {
   const [viewState, setViewState] = useState<ViewState>(INITIAL_VIEW_STATE);
   const [hoverInfo, setHoverInfo] = useState<PickingInfo | null>(null);
+  const [drawingMode, setDrawingMode] = useState<DrawingMode>('select');
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    longitude: number;
+    latitude: number;
+  } | null>(null);
+  const [precisionInputModal, setPrecisionInputModal] = useState<{
+    isOpen: boolean;
+    longitude: number;
+    latitude: number;
+    mode: 'point' | 'polygon' | 'rectangle' | 'circle' | 'line';
+  }>({
+    isOpen: false,
+    longitude: 0,
+    latitude: 0,
+    mode: 'point',
+  });
+  const deckRef = useRef<any>(null);
 
   // Filter data based on visible layers
   const filteredData: GeoJSONFeatureCollection = {
@@ -94,12 +124,193 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers }: MapDashboa
   // Handle feature click
   const handleClick = useCallback(
     (info: PickingInfo) => {
+      // Close context menu if open
+      setContextMenu(null);
+
+      if (drawingMode === 'delete' && info.object) {
+        // Delete mode - delete the clicked feature
+        const feature = info.object as GeoJSONFeature;
+        handleDeleteFeature(feature.id);
+        return;
+      }
+
       if (info.object && onFeatureClick) {
         onFeatureClick(info.object as GeoJSONFeature);
       }
     },
-    [onFeatureClick]
+    [onFeatureClick, drawingMode]
   );
+
+  // Handle right-click on map
+  const handleContextMenu = useCallback(
+    (event: any) => {
+      event.preventDefault();
+
+      // Get the coordinates from the event
+      const { lngLat } = event;
+      if (!lngLat) return;
+
+      setContextMenu({
+        x: event.center.x,
+        y: event.center.y,
+        longitude: lngLat.lng,
+        latitude: lngLat.lat,
+      });
+    },
+    []
+  );
+
+  // Create a new feature from precision input
+  const handlePrecisionCreate = async (data: {
+    name: string;
+    type: AssetType;
+    status: AssetStatus;
+    geometry: GeoJSON.Geometry;
+    properties?: Record<string, any>;
+  }) => {
+    try {
+      await createAsset(data);
+      toaster.show({
+        message: `Created ${data.name}`,
+        intent: Intent.SUCCESS,
+        icon: 'tick',
+      });
+    } catch (error) {
+      console.error('Error creating asset:', error);
+      toaster.show({
+        message: 'Failed to create feature',
+        intent: Intent.DANGER,
+        icon: 'error',
+      });
+    }
+  };
+
+  // Quick create point from context menu
+  const handleQuickCreatePoint = async (lng: number, lat: number) => {
+    try {
+      await createAsset({
+        name: `Point at ${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+        type: 'poi',
+        status: 'active',
+        geometry: {
+          type: 'Point',
+          coordinates: [lng, lat],
+        },
+      });
+      toaster.show({
+        message: 'Point created',
+        intent: Intent.SUCCESS,
+        icon: 'map-marker',
+      });
+    } catch (error) {
+      console.error('Error creating point:', error);
+      toaster.show({
+        message: 'Failed to create point',
+        intent: Intent.DANGER,
+        icon: 'error',
+      });
+    }
+  };
+
+  // Update an existing feature
+  const handleUpdateFeature = async (
+    id: string,
+    data: {
+      name: string;
+      type: AssetType;
+      status: AssetStatus;
+      geometry: GeoJSON.Geometry;
+      properties?: Record<string, any>;
+    }
+  ) => {
+    try {
+      await updateAsset(id, data);
+      toaster.show({
+        message: 'Feature updated',
+        intent: Intent.SUCCESS,
+        icon: 'tick',
+      });
+    } catch (error) {
+      console.error('Error updating asset:', error);
+      toaster.show({
+        message: 'Failed to update feature',
+        intent: Intent.DANGER,
+        icon: 'error',
+      });
+    }
+  };
+
+  // Delete a feature
+  const handleDeleteFeature = async (id: string) => {
+    try {
+      await deleteAsset(id);
+      toaster.show({
+        message: 'Feature deleted',
+        intent: Intent.SUCCESS,
+        icon: 'trash',
+      });
+    } catch (error) {
+      console.error('Error deleting asset:', error);
+      toaster.show({
+        message: 'Failed to delete feature',
+        intent: Intent.DANGER,
+        icon: 'error',
+      });
+    }
+  };
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      switch (e.key.toLowerCase()) {
+        case 'escape':
+          setDrawingMode('select');
+          setContextMenu(null);
+          setPrecisionInputModal((prev) => ({ ...prev, isOpen: false }));
+          if (editFeature && onEditComplete) {
+            onEditComplete();
+          }
+          break;
+        case 'p':
+          setDrawingMode('point');
+          break;
+        case 'r':
+          setDrawingMode('rectangle');
+          break;
+        case 'c':
+          setDrawingMode('circle');
+          break;
+        case 'g':
+          setDrawingMode('polygon');
+          break;
+        case 'l':
+          setDrawingMode('line');
+          break;
+        case 'delete':
+        case 'backspace':
+          if (drawingMode !== 'delete') {
+            setDrawingMode('delete');
+          }
+          break;
+        case 'i':
+          setPrecisionInputModal({
+            isOpen: true,
+            longitude: viewState.longitude,
+            latitude: viewState.latitude,
+            mode: 'point',
+          });
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [drawingMode, viewState]);
 
   // Create Deck.gl layers
   const layers = [
@@ -141,21 +352,86 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers }: MapDashboa
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <DeckGL
+        ref={deckRef}
         viewState={viewState}
         onViewStateChange={({ viewState }) => setViewState(viewState as ViewState)}
         controller={true}
         layers={layers}
-        getCursor={() => (hoverInfo?.object ? 'pointer' : 'grab')}
+        getCursor={() => {
+          if (drawingMode === 'delete') return 'not-allowed';
+          if (drawingMode !== 'select') return 'crosshair';
+          return hoverInfo?.object ? 'pointer' : 'grab';
+        }}
       >
         <Map
           mapboxAccessToken={MAPBOX_TOKEN}
           mapStyle="mapbox://styles/mapbox/dark-v11"
           attributionControl={false}
+          onContextMenu={handleContextMenu}
         />
       </DeckGL>
 
+      {/* Drawing Toolbar */}
+      <DrawingToolbar
+        activeMode={drawingMode}
+        onModeChange={setDrawingMode}
+        onPrecisionInput={() =>
+          setPrecisionInputModal({
+            isOpen: true,
+            longitude: viewState.longitude,
+            latitude: viewState.latitude,
+            mode: 'point',
+          })
+        }
+      />
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <MapContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          longitude={contextMenu.longitude}
+          latitude={contextMenu.latitude}
+          onCreatePoint={handleQuickCreatePoint}
+          onCreateZone={(lng, lat) => {
+            setDrawingMode('polygon');
+            setContextMenu(null);
+          }}
+          onPrecisionInput={(lng, lat) => {
+            setPrecisionInputModal({
+              isOpen: true,
+              longitude: lng,
+              latitude: lat,
+              mode: 'point',
+            });
+          }}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {/* Precision Input Modal */}
+      <PrecisionInputModal
+        isOpen={precisionInputModal.isOpen}
+        onClose={() => setPrecisionInputModal((prev) => ({ ...prev, isOpen: false }))}
+        onSave={handlePrecisionCreate}
+        initialLongitude={precisionInputModal.longitude}
+        initialLatitude={precisionInputModal.latitude}
+        mode={precisionInputModal.mode}
+      />
+
+      {/* Edit Feature Panel */}
+      <EditFeaturePanel
+        feature={editFeature || null}
+        isOpen={!!editFeature}
+        onClose={() => {
+          if (onEditComplete) onEditComplete();
+        }}
+        onSave={handleUpdateFeature}
+        onDelete={handleDeleteFeature}
+      />
+
       {/* Hover tooltip */}
-      {hoverInfo?.object && (
+      {hoverInfo?.object && drawingMode === 'select' && (
         <div
           style={{
             position: 'absolute',
@@ -196,6 +472,31 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers }: MapDashboa
       >
         {filteredData.features.length} assets
       </div>
+
+      {/* Drawing mode indicator */}
+      {drawingMode !== 'select' && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '10px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            color: 'white',
+            padding: '8px 16px',
+            borderRadius: '4px',
+            fontSize: '13px',
+            fontWeight: 'bold',
+            zIndex: 100,
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+          }}
+        >
+          {drawingMode.charAt(0).toUpperCase() + drawingMode.slice(1)} Mode
+          <span style={{ opacity: 0.7, marginLeft: '8px', fontSize: '11px' }}>
+            (Press ESC to exit)
+          </span>
+        </div>
+      )}
     </div>
   );
 }

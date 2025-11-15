@@ -34,7 +34,52 @@ const POLL_INTERVAL = 5000; // 5 seconds
 
 async function pollForUpdates() {
   try {
-    // Get assets updated since last check
+    const currentTime = new Date();
+
+    // Get assets created since last check (created_at equals updated_at for new records)
+    const created = await sql`
+      SELECT
+        id,
+        name,
+        type,
+        status,
+        ST_AsGeoJSON(geometry)::jsonb as geometry,
+        properties,
+        created_at,
+        updated_at
+      FROM assets
+      WHERE created_at > ${lastCheckTime}
+        AND created_at = updated_at
+        AND deleted_at IS NULL
+      ORDER BY created_at DESC
+    `;
+
+    if (created.length > 0) {
+      created.forEach((asset) => {
+        broadcast({
+          type: 'asset_create',
+          data: {
+            type: 'Feature',
+            id: asset.id,
+            geometry: asset.geometry,
+            properties: {
+              id: asset.id,
+              name: asset.name,
+              type: asset.type,
+              status: asset.status,
+              createdAt: asset.created_at,
+              updatedAt: asset.updated_at,
+              ...asset.properties,
+            },
+          },
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      console.log(`📡 Broadcasted ${created.length} asset creation(s)`);
+    }
+
+    // Get assets updated since last check (updated_at > created_at for modified records)
     const updates = await sql`
       SELECT
         id,
@@ -43,15 +88,16 @@ async function pollForUpdates() {
         status,
         ST_AsGeoJSON(geometry)::jsonb as geometry,
         properties,
+        created_at,
         updated_at
       FROM assets
       WHERE updated_at > ${lastCheckTime}
+        AND updated_at > created_at
         AND deleted_at IS NULL
       ORDER BY updated_at DESC
     `;
 
     if (updates.length > 0) {
-      // Broadcast each update
       updates.forEach((asset) => {
         broadcast({
           type: 'asset_update',
@@ -64,7 +110,8 @@ async function pollForUpdates() {
               name: asset.name,
               type: asset.type,
               status: asset.status,
-              updatedAt: asset.updatedAt,
+              createdAt: asset.created_at,
+              updatedAt: asset.updated_at,
               ...asset.properties,
             },
           },
@@ -75,7 +122,30 @@ async function pollForUpdates() {
       console.log(`📡 Broadcasted ${updates.length} asset update(s)`);
     }
 
-    lastCheckTime = new Date();
+    // Get assets deleted since last check
+    const deleted = await sql`
+      SELECT id
+      FROM assets
+      WHERE deleted_at > ${lastCheckTime}
+        AND deleted_at IS NOT NULL
+      ORDER BY deleted_at DESC
+    `;
+
+    if (deleted.length > 0) {
+      deleted.forEach((asset) => {
+        broadcast({
+          type: 'asset_delete',
+          data: {
+            id: asset.id,
+          },
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      console.log(`📡 Broadcasted ${deleted.length} asset deletion(s)`);
+    }
+
+    lastCheckTime = currentTime;
   } catch (error) {
     console.error('Error polling for updates:', error);
   }
