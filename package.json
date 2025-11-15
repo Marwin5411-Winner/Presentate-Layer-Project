@@ -1,0 +1,6 @@
+{
+  "name": "presentate-layer-project",
+  "workspaces": [
+    "apps/*"
+  ]
+}
