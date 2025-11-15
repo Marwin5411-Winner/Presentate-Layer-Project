@@ -1,6 +1,6 @@
 import { Elysia, t } from 'elysia';
 import { sql } from './db';
-import type { AssetQueryParams, GeoJSONFeatureCollection } from './types';
+import type { AssetQueryParams, GeoJSONFeatureCollection, GeoJSONFeature } from './types';
 
 /**
  * API Routes for the geospatial dashboard
@@ -187,6 +187,265 @@ export const routes = new Elysia({ prefix: '/api' })
       throw new Error('Failed to fetch layer');
     }
   })
+
+  /**
+   * POST /api/assets
+   * Create a new asset
+   */
+  .post(
+    '/assets',
+    async ({ body }) => {
+      try {
+        const { name, type, status, geometry, properties } = body;
+
+        // Convert GeoJSON geometry to PostGIS geometry using ST_GeomFromGeoJSON
+        const result = await sql`
+          INSERT INTO assets (name, type, status, geometry, properties)
+          VALUES (
+            ${name},
+            ${type},
+            ${status},
+            ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(geometry)}), 4326),
+            ${properties ? sql`${JSON.stringify(properties)}::jsonb` : sql`'{}'::jsonb`}
+          )
+          RETURNING
+            id,
+            name,
+            type,
+            status,
+            ST_AsGeoJSON(geometry)::jsonb as geometry,
+            properties,
+            created_at,
+            updated_at
+        `;
+
+        if (result.length === 0) {
+          throw new Error('Failed to create asset');
+        }
+
+        // Build GeoJSON Feature response
+        const asset = result[0];
+        const feature: GeoJSONFeature = {
+          type: 'Feature',
+          id: asset.id,
+          geometry: asset.geometry,
+          properties: {
+            id: asset.id,
+            name: asset.name,
+            type: asset.type,
+            status: asset.status,
+            createdAt: asset.created_at,
+            updatedAt: asset.updated_at,
+            ...(asset.properties || {}),
+          },
+        };
+
+        return feature;
+      } catch (error) {
+        console.error('Error creating asset:', error);
+        throw new Error('Failed to create asset');
+      }
+    },
+    {
+      body: t.Object({
+        name: t.String({ minLength: 1, maxLength: 255 }),
+        type: t.Union([
+          t.Literal('vehicle'),
+          t.Literal('incident'),
+          t.Literal('poi'),
+          t.Literal('zone'),
+          t.Literal('route'),
+        ]),
+        status: t.Union([
+          t.Literal('active'),
+          t.Literal('inactive'),
+          t.Literal('warning'),
+          t.Literal('critical'),
+        ]),
+        geometry: t.Object({
+          type: t.String(),
+          coordinates: t.Any(),
+        }),
+        properties: t.Optional(t.Record(t.String(), t.Any())),
+      }),
+    }
+  )
+
+  /**
+   * PUT /api/assets/:id
+   * Update an existing asset
+   */
+  .put(
+    '/assets/:id',
+    async ({ params: { id }, body }) => {
+      try {
+        const { name, type, status, geometry, properties } = body;
+
+        // Update asset with new values
+        const result = await sql`
+          UPDATE assets
+          SET
+            name = ${name},
+            type = ${type},
+            status = ${status},
+            geometry = ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(geometry)}), 4326),
+            properties = ${properties ? sql`${JSON.stringify(properties)}::jsonb` : sql`'{}'::jsonb`},
+            updated_at = NOW()
+          WHERE id = ${id} AND deleted_at IS NULL
+          RETURNING
+            id,
+            name,
+            type,
+            status,
+            ST_AsGeoJSON(geometry)::jsonb as geometry,
+            properties,
+            created_at,
+            updated_at
+        `;
+
+        if (result.length === 0) {
+          throw new Error('Asset not found or already deleted');
+        }
+
+        // Build GeoJSON Feature response
+        const asset = result[0];
+        const feature: GeoJSONFeature = {
+          type: 'Feature',
+          id: asset.id,
+          geometry: asset.geometry,
+          properties: {
+            id: asset.id,
+            name: asset.name,
+            type: asset.type,
+            status: asset.status,
+            createdAt: asset.created_at,
+            updatedAt: asset.updated_at,
+            ...(asset.properties || {}),
+          },
+        };
+
+        return feature;
+      } catch (error) {
+        console.error('Error updating asset:', error);
+        throw new Error('Failed to update asset');
+      }
+    },
+    {
+      body: t.Object({
+        name: t.String({ minLength: 1, maxLength: 255 }),
+        type: t.Union([
+          t.Literal('vehicle'),
+          t.Literal('incident'),
+          t.Literal('poi'),
+          t.Literal('zone'),
+          t.Literal('route'),
+        ]),
+        status: t.Union([
+          t.Literal('active'),
+          t.Literal('inactive'),
+          t.Literal('warning'),
+          t.Literal('critical'),
+        ]),
+        geometry: t.Object({
+          type: t.String(),
+          coordinates: t.Any(),
+        }),
+        properties: t.Optional(t.Record(t.String(), t.Any())),
+      }),
+    }
+  )
+
+  /**
+   * DELETE /api/assets/:id
+   * Soft delete an asset (sets deleted_at timestamp)
+   */
+  .delete('/assets/:id', async ({ params: { id } }) => {
+    try {
+      const result = await sql`
+        UPDATE assets
+        SET deleted_at = NOW()
+        WHERE id = ${id} AND deleted_at IS NULL
+        RETURNING id
+      `;
+
+      if (result.length === 0) {
+        throw new Error('Asset not found or already deleted');
+      }
+
+      return {
+        success: true,
+        id: result[0].id,
+        message: 'Asset deleted successfully',
+      };
+    } catch (error) {
+      console.error('Error deleting asset:', error);
+      throw new Error('Failed to delete asset');
+    }
+  })
+
+  /**
+   * PATCH /api/assets/:id/geometry
+   * Update only the geometry of an asset
+   */
+  .patch(
+    '/assets/:id/geometry',
+    async ({ params: { id }, body }) => {
+      try {
+        const { geometry } = body;
+
+        const result = await sql`
+          UPDATE assets
+          SET
+            geometry = ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(geometry)}), 4326),
+            updated_at = NOW()
+          WHERE id = ${id} AND deleted_at IS NULL
+          RETURNING
+            id,
+            name,
+            type,
+            status,
+            ST_AsGeoJSON(geometry)::jsonb as geometry,
+            properties,
+            created_at,
+            updated_at
+        `;
+
+        if (result.length === 0) {
+          throw new Error('Asset not found or already deleted');
+        }
+
+        // Build GeoJSON Feature response
+        const asset = result[0];
+        const feature: GeoJSONFeature = {
+          type: 'Feature',
+          id: asset.id,
+          geometry: asset.geometry,
+          properties: {
+            id: asset.id,
+            name: asset.name,
+            type: asset.type,
+            status: asset.status,
+            createdAt: asset.created_at,
+            updatedAt: asset.updated_at,
+            ...(asset.properties || {}),
+          },
+        };
+
+        return feature;
+      } catch (error) {
+        console.error('Error updating asset geometry:', error);
+        throw new Error('Failed to update asset geometry');
+      }
+    },
+    {
+      body: t.Object({
+        geometry: t.Object({
+          type: t.String(),
+          coordinates: t.Any(),
+        }),
+      }),
+    }
+  )
 
   /**
    * GET /api/health

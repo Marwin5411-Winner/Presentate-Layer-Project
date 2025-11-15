@@ -1,10 +1,12 @@
-import { Drawer, Classes, H4, H5, Tag, Divider } from '@blueprintjs/core';
+import { Drawer, Classes, H4, H5, Tag, Divider, Button, Intent } from '@blueprintjs/core';
+import { IconNames } from '@blueprintjs/icons';
 import type { GeoJSONFeature } from '../types';
 
 interface AssetDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   asset: GeoJSONFeature | null;
+  onEdit?: (asset: GeoJSONFeature) => void;
 }
 
 /**
@@ -88,7 +90,7 @@ const renderProperties = (properties: Record<string, any>) => {
   );
 };
 
-export function AssetDrawer({ isOpen, onClose, asset }: AssetDrawerProps) {
+export function AssetDrawer({ isOpen, onClose, asset, onEdit }: AssetDrawerProps) {
   if (!asset) return null;
 
   const { properties, geometry } = asset;
@@ -171,6 +173,24 @@ export function AssetDrawer({ isOpen, onClose, asset }: AssetDrawerProps) {
 
           {/* Custom Properties */}
           {renderProperties(properties)}
+
+          {/* Edit Button */}
+          {onEdit && (
+            <div style={{ marginTop: '24px' }}>
+              <Button
+                intent={Intent.PRIMARY}
+                icon={IconNames.EDIT}
+                fill
+                large
+                onClick={() => {
+                  onEdit(asset);
+                  onClose();
+                }}
+              >
+                Edit Feature
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     </Drawer>

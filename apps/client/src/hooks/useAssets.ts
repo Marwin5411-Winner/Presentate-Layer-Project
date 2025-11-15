@@ -31,7 +31,23 @@ export function useAssets() {
 
   // Handle real-time updates from WebSocket
   const handleWebSocketMessage = useCallback((message: WSMessage) => {
-    if (message.type === 'asset_update' && message.data) {
+    if (message.type === 'asset_create' && message.data) {
+      const newFeature: GeoJSONFeature = message.data;
+
+      setData((prevData) => {
+        // Check if feature already exists (avoid duplicates)
+        const exists = prevData.features.some((f) => f.id === newFeature.id);
+
+        if (!exists) {
+          return {
+            type: 'FeatureCollection',
+            features: [...prevData.features, newFeature],
+          };
+        }
+
+        return prevData;
+      });
+    } else if (message.type === 'asset_update' && message.data) {
       const updatedFeature: GeoJSONFeature = message.data;
 
       setData((prevData) => {
@@ -50,7 +66,7 @@ export function useAssets() {
             features: newFeatures,
           };
         } else {
-          // Add new feature
+          // Feature not found, add it as new
           return {
             type: 'FeatureCollection',
             features: [...prevData.features, updatedFeature],

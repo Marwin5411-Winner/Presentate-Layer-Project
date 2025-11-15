@@ -22,6 +22,7 @@ function App() {
   const { data, loading, error, refresh } = useAssets();
   const [selectedAsset, setSelectedAsset] = useState<GeoJSONFeature | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [editFeature, setEditFeature] = useState<GeoJSONFeature | null>(null);
 
   // Layer configuration
   const [layers, setLayers] = useState<LayerConfig[]>([
@@ -55,6 +56,11 @@ function App() {
   // Close drawer
   const handleDrawerClose = () => {
     setIsDrawerOpen(false);
+  };
+
+  // Handle edit feature
+  const handleEditFeature = (feature: GeoJSONFeature) => {
+    setEditFeature(feature);
   };
 
   return (
@@ -106,6 +112,8 @@ function App() {
           data={data}
           onFeatureClick={handleFeatureClick}
           visibleLayers={visibleLayers}
+          editFeature={editFeature}
+          onEditComplete={() => setEditFeature(null)}
         />
 
         {/* Layer toggle */}
@@ -117,6 +125,7 @@ function App() {
         isOpen={isDrawerOpen}
         onClose={handleDrawerClose}
         asset={selectedAsset}
+        onEdit={handleEditFeature}
       />
     </div>
   );
