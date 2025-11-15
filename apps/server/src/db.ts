@@ -4,7 +4,7 @@ import postgres from 'postgres';
  * Database configuration
  * Reads from environment variables or uses defaults for development
  */
-const DATABASE_URL = process.env.DATABASE_URL ||
+const DATABASE_URL = Bun.env.DATABASE_URL ||
   'postgres://postgres:postgres@localhost:5432/geospatial_dashboard';
 
 /**

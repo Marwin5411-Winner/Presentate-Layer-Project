@@ -66,7 +66,7 @@ const renderProperties = (properties: Record<string, any>) => {
 
   return (
     <div style={{ marginTop: '16px' }}>
-      <H5>Additional Properties</H5>
+      <H5 style={{ color: '#ffffff' }}>Additional Properties</H5>
       <div style={{ marginTop: '8px' }}>
         {customProps.map(([key, value]) => (
           <div
@@ -77,10 +77,10 @@ const renderProperties = (properties: Record<string, any>) => {
               padding: '4px 0',
             }}
           >
-            <span style={{ fontWeight: 'bold', textTransform: 'capitalize' }}>
+            <span style={{ fontWeight: 'bold', textTransform: 'capitalize', color: '#ffffff' }}>
               {key.replace(/_/g, ' ')}:
             </span>
-            <span>{JSON.stringify(value)}</span>
+            <span style={{ color: '#ffffff' }}>{JSON.stringify(value)}</span>
           </div>
         ))}
       </div>
@@ -101,11 +101,12 @@ export function AssetDrawer({ isOpen, onClose, asset }: AssetDrawerProps) {
       size="400px"
       canOutsideClickClose={true}
       canEscapeKeyClose={true}
+      style={{ color: '#ffffff' }}
     >
-      <div className={Classes.DRAWER_BODY}>
-        <div className={Classes.DIALOG_BODY}>
+      <div className={Classes.DRAWER_BODY} style={{ color: '#ffffff' }}>
+        <div className={Classes.DIALOG_BODY} style={{ color: '#ffffff' }}>
           {/* Asset Name */}
-          <H4>{properties.name}</H4>
+          <H4 style={{ color: '#ffffff' }}>{properties.name}</H4>
 
           {/* Tags */}
           <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
@@ -121,21 +122,21 @@ export function AssetDrawer({ isOpen, onClose, asset }: AssetDrawerProps) {
 
           {/* Basic Info */}
           <div>
-            <H5>Information</H5>
+            <H5 style={{ color: '#ffffff' }}>Information</H5>
             <div style={{ marginTop: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
-                <span style={{ fontWeight: 'bold' }}>ID:</span>
-                <span style={{ fontFamily: 'monospace', fontSize: '12px' }}>
+                <span style={{ fontWeight: 'bold', color: '#ffffff' }}>ID:</span>
+                <span style={{ fontFamily: 'monospace', fontSize: '12px', color: '#ffffff' }}>
                   {properties.id.slice(0, 8)}...
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
-                <span style={{ fontWeight: 'bold' }}>Created:</span>
-                <span>{formatDate(properties.createdAt)}</span>
+                <span style={{ fontWeight: 'bold', color: '#ffffff' }}>Created:</span>
+                <span style={{ color: '#ffffff' }}>{formatDate(properties.createdAt)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
-                <span style={{ fontWeight: 'bold' }}>Updated:</span>
-                <span>{formatDate(properties.updatedAt)}</span>
+                <span style={{ fontWeight: 'bold', color: '#ffffff' }}>Updated:</span>
+                <span style={{ color: '#ffffff' }}>{formatDate(properties.updatedAt)}</span>
               </div>
             </div>
           </div>
@@ -144,25 +145,25 @@ export function AssetDrawer({ isOpen, onClose, asset }: AssetDrawerProps) {
 
           {/* Geometry Info */}
           <div>
-            <H5>Geometry</H5>
+            <H5 style={{ color: '#ffffff' }}>Geometry</H5>
             <div style={{ marginTop: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
-                <span style={{ fontWeight: 'bold' }}>Type:</span>
-                <span>{geometry.type}</span>
+                <span style={{ fontWeight: 'bold', color: '#ffffff' }}>Type:</span>
+                <span style={{ color: '#ffffff' }}>{geometry.type}</span>
               </div>
               {geometry.type === 'Point' && (
                 <>
                   <div
                     style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}
                   >
-                    <span style={{ fontWeight: 'bold' }}>Longitude:</span>
-                    <span>{(geometry.coordinates as number[])[0].toFixed(6)}</span>
+                    <span style={{ fontWeight: 'bold', color: '#ffffff' }}>Longitude:</span>
+                    <span style={{ color: '#ffffff' }}>{(geometry.coordinates as number[])[0].toFixed(6)}</span>
                   </div>
                   <div
                     style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}
                   >
-                    <span style={{ fontWeight: 'bold' }}>Latitude:</span>
-                    <span>{(geometry.coordinates as number[])[1].toFixed(6)}</span>
+                    <span style={{ fontWeight: 'bold', color: '#ffffff' }}>Latitude:</span>
+                    <span style={{ color: '#ffffff' }}>{(geometry.coordinates as number[])[1].toFixed(6)}</span>
                   </div>
                 </>
               )}

@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import Map from 'react-map-gl';
+import Map from 'react-map-gl/mapbox';
 import { DeckGL } from '@deck.gl/react';
 import { GeoJsonLayer } from '@deck.gl/layers';
 import type { PickingInfo } from '@deck.gl/core';

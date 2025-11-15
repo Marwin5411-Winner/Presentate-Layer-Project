@@ -3,12 +3,13 @@
   "version": "1.0.0",
   "description": "High-performance, real-time geospatial data dashboard",
   "workspaces": [
-    "apps/*"
+    "apps/client",
+    "apps/server"
   ],
   "scripts": {
-    "dev:server": "bun --cwd apps/server run dev",
-    "dev:client": "bun --cwd apps/client run dev",
-    "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "bun --cwd apps/server dev",
+    "dev:client": "bun --cwd apps/client dev",
+    "dev": "concurrently \"bun run dev:server\" \"bun run dev:client\"",
     "build:client": "bun --cwd apps/client run build",
     "build": "bun run build:client",
     "start": "bun --cwd apps/server run src/index.ts",

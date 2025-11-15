@@ -60,14 +60,14 @@ function App() {
   return (
     <div className="bp5-dark" style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* Navbar */}
-      <Navbar style={{ backgroundColor: '#10161a' }}>
+      <Navbar style={{ backgroundColor: '#10161a', color: '#ffffff' }}>
         <Navbar.Group align={Alignment.LEFT}>
-          <Navbar.Heading>
-            <Icon icon="map" size={20} style={{ marginRight: '8px' }} />
-            <strong>Geospatial Dashboard</strong>
+          <Navbar.Heading style={{ color: '#ffffff' }}>
+            <Icon icon="map" size={20} style={{ marginRight: '8px', color: '#ffffff' }} />
+            <strong style={{ color: '#ffffff' }}>Gerumantic Presentathus</strong>
           </Navbar.Heading>
           <Navbar.Divider />
-          <Tag minimal intent="none">
+          <Tag minimal intent="none" style={{ color: '#ffffff' }}>
             Real-time
           </Tag>
         </Navbar.Group>
@@ -79,6 +79,7 @@ function App() {
             onClick={refresh}
             disabled={loading}
             text="Refresh"
+            style={{ color: '#ffffff' }}
           />
         </Navbar.Group>
       </Navbar>

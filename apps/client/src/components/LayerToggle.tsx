@@ -16,9 +16,10 @@ export function LayerToggle({ layers, onLayerToggle }: LayerToggleProps) {
         width: '200px',
         zIndex: 1000,
         backgroundColor: 'rgba(16, 22, 26, 0.9)',
+        color: '#ffffff',
       }}
     >
-      <H5 style={{ marginBottom: '12px' }}>Layers</H5>
+      <H5 style={{ marginBottom: '12px', color: '#ffffff' }}>Layers</H5>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {layers.map((layer) => (
           <div
@@ -38,7 +39,7 @@ export function LayerToggle({ layers, onLayerToggle }: LayerToggleProps) {
                   backgroundColor: layer.color,
                 }}
               />
-              <span style={{ textTransform: 'capitalize' }}>{layer.name}</span>
+              <span style={{ textTransform: 'capitalize', color: '#ffffff' }}>{layer.name}</span>
             </div>
             <Switch
               checked={layer.visible}
