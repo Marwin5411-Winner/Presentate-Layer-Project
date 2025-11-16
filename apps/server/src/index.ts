@@ -2,7 +2,7 @@ import { Elysia } from 'elysia';
 import { cors } from '@elysiajs/cors';
 import { testConnection } from './db';
 import { routes } from './routes';
-import { websocket } from './websocket';
+import { websocket, setAppInstance } from './websocket';
 
 // Test database connection on startup
 await testConnection();
@@ -52,6 +52,9 @@ const app = new Elysia()
 
   // Start server
   .listen(3000);
+
+// Set app instance for WebSocket broadcasting
+setAppInstance(app);
 
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 console.log('🗺️  Geospatial Dashboard Server');

@@ -3,25 +3,38 @@ import { sql } from './db';
 import type { WSMessage } from './types';
 
 /**
- * WebSocket connections registry
- * Stores all active WebSocket connections for broadcasting
+ * Topic name for WebSocket pub/sub
  */
-const connections = new Set<any>();
+const ASSETS_TOPIC = 'assets-updates';
 
 /**
- * Broadcast a message to all connected clients
+ * Track active subscriber count
+ */
+let subscriberCount = 0;
+
+/**
+ * Store reference to the Elysia app instance for global publishing
+ */
+let appInstance: Elysia | null = null;
+
+/**
+ * Set the app instance for broadcasting
+ */
+export function setAppInstance(app: Elysia) {
+  appInstance = app;
+}
+
+/**
+ * Broadcast a message to all connected clients using Elysia's pub/sub
  */
 export function broadcast(message: WSMessage) {
-  const messageStr = JSON.stringify(message);
+  if (!appInstance?.server) {
+    console.warn('Cannot broadcast: server instance not available');
+    return;
+  }
 
-  connections.forEach((ws) => {
-    try {
-      ws.send(messageStr);
-    } catch (error) {
-      console.error('Error broadcasting to client:', error);
-      connections.delete(ws);
-    }
-  });
+  const messageStr = JSON.stringify(message);
+  appInstance.server.publish(ASSETS_TOPIC, messageStr);
 }
 
 /**
@@ -175,20 +188,23 @@ export function stopPolling() {
 export const websocket = new Elysia()
   .ws('/ws', {
     open(ws) {
-      connections.add(ws);
-      console.log(`🔌 Client connected. Total connections: ${connections.size}`);
+      // Subscribe to the assets updates topic
+      ws.subscribe(ASSETS_TOPIC);
+      subscriberCount++;
+
+      console.log(`🔌 Client connected. Total subscribers: ${subscriberCount}`);
 
       // Send welcome message
       ws.send(
         JSON.stringify({
-          type: 'ping',
+          type: 'connected',
           data: { message: 'Connected to geospatial dashboard' },
           timestamp: new Date().toISOString(),
         })
       );
 
       // Start polling if this is the first connection
-      if (connections.size === 1) {
+      if (subscriberCount === 1) {
         startPolling();
       }
     },
@@ -197,7 +213,7 @@ export const websocket = new Elysia()
       try {
         const data = typeof message === 'string' ? JSON.parse(message) : message;
 
-        // Handle ping/pong
+        // Handle ping/pong for connection keepalive
         if (data.type === 'ping') {
           ws.send(
             JSON.stringify({
@@ -211,29 +227,34 @@ export const websocket = new Elysia()
       }
     },
 
-    close(ws) {
-      connections.delete(ws);
-      console.log(`🔌 Client disconnected. Total connections: ${connections.size}`);
+    close(ws, code, message) {
+      // Unsubscribe from the topic
+      ws.unsubscribe(ASSETS_TOPIC);
+      subscriberCount = Math.max(0, subscriberCount - 1);
+
+      console.log(`🔌 Client disconnected (code: ${code}). Total subscribers: ${subscriberCount}`);
 
       // Stop polling if no more connections
-      if (connections.size === 0) {
+      if (subscriberCount === 0) {
         stopPolling();
       }
     },
 
     error(ws, error) {
-      console.error('WebSocket error:', error);
-      connections.delete(ws);
+      console.error('❌ WebSocket error:', error);
+      // Clean up the connection
+      ws.unsubscribe(ASSETS_TOPIC);
+      subscriberCount = Math.max(0, subscriberCount - 1);
     },
   });
 
 // Cleanup on process exit
 process.on('SIGTERM', () => {
   stopPolling();
-  connections.clear();
+  subscriberCount = 0;
 });
 
 process.on('SIGINT', () => {
   stopPolling();
-  connections.clear();
+  subscriberCount = 0;
 });

@@ -33,7 +33,7 @@ export interface GeoJSONFeatureCollection {
 }
 
 export interface WSMessage {
-  type: 'asset_update' | 'asset_create' | 'asset_delete' | 'ping' | 'pong';
+  type: 'asset_update' | 'asset_create' | 'asset_delete' | 'ping' | 'pong' | 'connected';
   data?: any;
   timestamp: string;
 }
