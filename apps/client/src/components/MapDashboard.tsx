@@ -2,19 +2,9 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import Map from 'react-map-gl/mapbox';
 import { DeckGL } from '@deck.gl/react';
 import type { PickingInfo } from '@deck.gl/core';
-import { EditableGeoJsonLayer } from '@deck.gl-community/editable-layers';
-import {
-  DrawPolygonMode,
-  DrawRectangleMode,
-  DrawCircleFromCenterMode,
-  DrawLineStringMode,
-  DrawPointMode,
-  ModifyMode,
-  ViewMode,
-} from '@deck.gl-community/editable-layers';
+import { GeoJsonLayer } from '@deck.gl/layers';
+import { _ContextMenuWidget as ContextMenuWidget } from '@deck.gl/widgets';
 import type { GeoJSONFeatureCollection, GeoJSONFeature, ViewState, AssetType, AssetStatus } from '../types';
-import { DrawingToolbar, type DrawingMode } from './DrawingToolbar';
-import { MapContextMenu } from './MapContextMenu';
 import { PrecisionInputModal } from './PrecisionInputModal';
 import { EditFeaturePanel } from './EditFeaturePanel';
 import { createAsset, updateAsset, deleteAsset } from '../utils/api';
@@ -96,30 +86,6 @@ const getLineWidth = (feature: GeoJSONFeature): number => {
   return feature.properties.type === 'route' ? 3 : 2;
 };
 
-/**
- * Map drawing toolbar modes to Deck.GL edit modes
- */
-const getEditMode = (drawingMode: DrawingMode) => {
-  switch (drawingMode) {
-    case 'point':
-      return DrawPointMode;
-    case 'rectangle':
-      return DrawRectangleMode;
-    case 'circle':
-      return DrawCircleFromCenterMode;
-    case 'polygon':
-      return DrawPolygonMode;
-    case 'line':
-      return DrawLineStringMode;
-    case 'select':
-      return ModifyMode;
-    case 'delete':
-      return ViewMode;
-    default:
-      return ViewMode;
-  }
-};
-
 // Create a toaster instance (initialized on first use)
 let toasterInstance: any = null;
 const getToaster = async () => {
@@ -132,14 +98,6 @@ const getToaster = async () => {
 export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature, onEditComplete }: MapDashboardProps) {
   const [viewState, setViewState] = useState<ViewState>(INITIAL_VIEW_STATE);
   const [hoverInfo, setHoverInfo] = useState<PickingInfo | null>(null);
-  const [drawingMode, setDrawingMode] = useState<DrawingMode>('select');
-  const [selectedFeatureIndexes, setSelectedFeatureIndexes] = useState<number[]>([]);
-  const [contextMenu, setContextMenu] = useState<{
-    x: number;
-    y: number;
-    longitude: number;
-    latitude: number;
-  } | null>(null);
   const [precisionInputModal, setPrecisionInputModal] = useState<{
     isOpen: boolean;
     longitude: number;
@@ -161,56 +119,18 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
       : data.features,
   };
 
-  // Handle feature click (for delete mode and feature selection)
+  // Handle feature click for feature selection
   const handleClick = useCallback(
     (info: PickingInfo) => {
-      // Close context menu if open
-      setContextMenu(null);
-
-      if (drawingMode === 'delete' && info.object) {
-        // Delete mode - delete the clicked feature
-        const feature = info.object as GeoJSONFeature;
-        handleDeleteFeature(feature.id);
-        return true;
-      }
-
-      // Feature selection in select mode
-      if (drawingMode === 'select' && info.object && onFeatureClick) {
-        // Update selected feature indexes
-        if (info.index !== undefined && info.index >= 0) {
-          setSelectedFeatureIndexes([info.index]);
-        }
+      // Feature selection
+      if (info.object && onFeatureClick) {
         onFeatureClick(info.object as GeoJSONFeature);
         return true;
       }
 
-      // Clear selection if clicking on empty area
-      if (!info.object) {
-        setSelectedFeatureIndexes([]);
-      }
-
       return false;
     },
-    [onFeatureClick, drawingMode]
-  );
-
-  // Handle right-click on map
-  const handleContextMenu = useCallback(
-    (event: any) => {
-      event.preventDefault();
-
-      // Get the coordinates from the event
-      const { lngLat } = event;
-      if (!lngLat) return;
-
-      setContextMenu({
-        x: event.center.x,
-        y: event.center.y,
-        longitude: lngLat.lng,
-        latitude: lngLat.lat,
-      });
-    },
-    []
+    [onFeatureClick]
   );
 
   // Create a new feature from precision input
@@ -312,89 +232,6 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
     }
   };
 
-  // Handle edits from the EditableGeoJsonLayer
-  const handleEdit = useCallback(
-    async ({ updatedData, editType, editContext }: any) => {
-      if (editType === 'addFeature') {
-        // A new feature was drawn
-        const newFeature = editContext?.featureIndexes?.[0] !== undefined
-          ? updatedData.features[editContext.featureIndexes[0]]
-          : updatedData.features[updatedData.features.length - 1];
-
-        if (!newFeature) return;
-
-        // Determine the type based on geometry
-        let type: AssetType = 'poi';
-        if (newFeature.geometry.type === 'Polygon') {
-          type = 'zone';
-        } else if (newFeature.geometry.type === 'LineString') {
-          type = 'route';
-        } else if (newFeature.geometry.type === 'Point') {
-          type = 'poi';
-        }
-
-        // Generate a name based on the geometry type
-        const name = `New ${type} ${new Date().toLocaleTimeString()}`;
-
-        try {
-          await createAsset({
-            name,
-            type,
-            status: 'active',
-            geometry: newFeature.geometry,
-          });
-          (await getToaster()).show({
-            message: `${type} created successfully`,
-            intent: Intent.SUCCESS,
-            icon: 'map-marker',
-          });
-        } catch (error) {
-          console.error('Error creating feature:', error);
-          (await getToaster()).show({
-            message: 'Failed to create feature',
-            intent: Intent.DANGER,
-            icon: 'error',
-          });
-        }
-      } else if (editType === 'updateFeature') {
-        // An existing feature was modified
-        const updatedFeature = editContext?.featureIndexes?.[0] !== undefined
-          ? updatedData.features[editContext.featureIndexes[0]]
-          : null;
-
-        if (!updatedFeature || !updatedFeature.id) return;
-
-        try {
-          await updateAsset(updatedFeature.id, {
-            name: updatedFeature.properties.name,
-            type: updatedFeature.properties.type,
-            status: updatedFeature.properties.status,
-            geometry: updatedFeature.geometry,
-            properties: updatedFeature.properties,
-          });
-          (await getToaster()).show({
-            message: 'Feature updated',
-            intent: Intent.SUCCESS,
-            icon: 'tick',
-          });
-        } catch (error) {
-          console.error('Error updating feature:', error);
-          (await getToaster()).show({
-            message: 'Failed to update feature',
-            intent: Intent.DANGER,
-            icon: 'error',
-          });
-        }
-      }
-    },
-    []
-  );
-
-  // Clear selection when drawing mode changes
-  useEffect(() => {
-    setSelectedFeatureIndexes([]);
-  }, [drawingMode]);
-
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -405,32 +242,9 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
 
       switch (e.key.toLowerCase()) {
         case 'escape':
-          setDrawingMode('select');
-          setContextMenu(null);
           setPrecisionInputModal((prev) => ({ ...prev, isOpen: false }));
           if (editFeature && onEditComplete) {
             onEditComplete();
-          }
-          break;
-        case 'p':
-          setDrawingMode('point');
-          break;
-        case 'r':
-          setDrawingMode('rectangle');
-          break;
-        case 'c':
-          setDrawingMode('circle');
-          break;
-        case 'g':
-          setDrawingMode('polygon');
-          break;
-        case 'l':
-          setDrawingMode('line');
-          break;
-        case 'delete':
-        case 'backspace':
-          if (drawingMode !== 'delete') {
-            setDrawingMode('delete');
           }
           break;
         case 'i':
@@ -446,18 +260,13 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [drawingMode, viewState]);
+  }, [viewState, editFeature, onEditComplete]);
 
   // Create Deck.gl layers
   const layers = [
-    new EditableGeoJsonLayer({
-      id: 'editable-geojson-layer',
+    new GeoJsonLayer({
+      id: 'geojson-layer',
       data: filteredData as any,
-
-      // Edit mode configuration
-      mode: getEditMode(drawingMode),
-      selectedFeatureIndexes,
-      onEdit: handleEdit,
 
       // Styling
       filled: true,
@@ -467,28 +276,15 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
       getFillColor: (f: any) => getFeatureColor(f as GeoJSONFeature),
       getLineColor: (f: any) => getFeatureColor(f as GeoJSONFeature),
       getLineWidth: (f: any) => getLineWidth(f as GeoJSONFeature),
-
-      // Point styling via sub-layer props
-      _subLayerProps: {
-        geojson: {
-          getPointRadius: (f: any) => getPointRadius(f as GeoJSONFeature),
-        },
-      },
-
-      // Edit handles styling
-      getEditHandlePointColor: [255, 255, 255, 255],
-      getEditHandlePointRadius: 6,
-      editHandlePointRadiusScale: 1,
-      editHandlePointRadiusMinPixels: 4,
-      editHandlePointRadiusMaxPixels: 8,
+      getPointRadius: (f: any) => getPointRadius(f as GeoJSONFeature),
 
       // Interaction
       pickable: true,
       autoHighlight: true,
       highlightColor: [255, 255, 255, 100],
 
-      // Click handler (for delete mode and feature selection)
-      onClick: drawingMode === 'delete' || drawingMode === 'select' ? handleClick : undefined,
+      // Click handler for feature selection
+      onClick: handleClick,
 
       // Hover handler
       onHover: (info) => setHoverInfo(info),
@@ -498,11 +294,108 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
         getFillColor: [filteredData],
         getLineColor: [filteredData],
         getPointRadius: [filteredData],
-        mode: [drawingMode],
-        selectedFeatureIndexes: [selectedFeatureIndexes],
       },
     }),
   ];
+
+  // Create ContextMenuWidget
+  const contextMenuWidget = new ContextMenuWidget({
+    position: { x: 0, y: 0 },
+    menuItems: [],
+    visible: false,
+    getMenuItems: (info: PickingInfo) => {
+      if (info.object) {
+        // Context menu for existing feature
+        const feature = info.object as GeoJSONFeature;
+        return [
+          { key: 'name', label: feature.properties.name },
+          { key: 'edit', label: 'Edit Properties' },
+          { key: 'delete', label: 'Delete' },
+        ];
+      }
+
+      // Context menu for empty map area
+      if (info.coordinate) {
+        return [
+          { key: 'add-point', label: 'Create Point Here' },
+          { key: 'add-zone', label: 'Create Zone (Polygon)' },
+          { key: 'add-circle', label: 'Create Circle' },
+          { key: 'add-route', label: 'Create Route (Line)' },
+          { key: 'divider-1', label: '---' },
+          { key: 'precision-input', label: 'Precision Input...' },
+          { key: 'divider-2', label: '---' },
+          { key: 'center-map', label: 'Center Map Here' },
+        ];
+      }
+
+      return [];
+    },
+    onMenuItemSelected: async (key: string, pickInfo: PickingInfo | null) => {
+      if (!pickInfo) return;
+
+      const feature = pickInfo.object as GeoJSONFeature;
+      const coordinate = pickInfo.coordinate;
+
+      switch (key) {
+        case 'edit':
+          if (feature && onFeatureClick) {
+            onFeatureClick(feature);
+          }
+          break;
+
+        case 'delete':
+          if (feature?.id) {
+            await handleDeleteFeature(feature.id);
+          }
+          break;
+
+        case 'add-point':
+          if (coordinate) {
+            await handleQuickCreatePoint(coordinate[0], coordinate[1]);
+          }
+          break;
+
+        case 'add-zone':
+        case 'add-circle':
+        case 'add-route':
+          if (coordinate) {
+            let mode: 'point' | 'polygon' | 'rectangle' | 'circle' | 'line' = 'polygon';
+            if (key === 'add-circle') mode = 'circle';
+            if (key === 'add-route') mode = 'line';
+
+            setPrecisionInputModal({
+              isOpen: true,
+              longitude: coordinate[0],
+              latitude: coordinate[1],
+              mode,
+            });
+          }
+          break;
+
+        case 'precision-input':
+          if (coordinate) {
+            setPrecisionInputModal({
+              isOpen: true,
+              longitude: coordinate[0],
+              latitude: coordinate[1],
+              mode: 'point',
+            });
+          }
+          break;
+
+        case 'center-map':
+          if (coordinate && deckRef.current) {
+            setViewState({
+              ...viewState,
+              longitude: coordinate[0],
+              latitude: coordinate[1],
+              zoom: Math.max(viewState.zoom, 14),
+            });
+          }
+          break;
+      }
+    },
+  });
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -512,9 +405,8 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
         onViewStateChange={({ viewState }) => setViewState(viewState as ViewState)}
         controller={true}
         layers={layers}
+        widgets={[contextMenuWidget]}
         getCursor={() => {
-          if (drawingMode === 'delete') return 'not-allowed';
-          if (drawingMode !== 'select') return 'crosshair';
           return hoverInfo?.object ? 'pointer' : 'grab';
         }}
       >
@@ -522,48 +414,43 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
           mapboxAccessToken={MAPBOX_TOKEN}
           mapStyle="mapbox://styles/mapbox/dark-v11"
           attributionControl={false}
-          onContextMenu={handleContextMenu}
           reuseMaps
         />
       </DeckGL>
 
-      {/* Drawing Toolbar */}
-      <DrawingToolbar
-        activeMode={drawingMode}
-        onModeChange={setDrawingMode}
-        onPrecisionInput={() =>
-          setPrecisionInputModal({
-            isOpen: true,
-            longitude: viewState.longitude,
-            latitude: viewState.latitude,
-            mode: 'point',
-          })
-        }
-      />
-
-      {/* Context Menu */}
-      {contextMenu && (
-        <MapContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          longitude={contextMenu.longitude}
-          latitude={contextMenu.latitude}
-          onCreatePoint={handleQuickCreatePoint}
-          onCreateZone={() => {
-            setDrawingMode('polygon');
-            setContextMenu(null);
-          }}
-          onPrecisionInput={(lng, lat) => {
+      {/* Precision Input Toolbar Button */}
+      <div
+        style={{
+          position: 'absolute',
+          left: '50%',
+          bottom: '20px',
+          transform: 'translateX(-50%)',
+          zIndex: 1100,
+        }}
+      >
+        <button
+          onClick={() =>
             setPrecisionInputModal({
               isOpen: true,
-              longitude: lng,
-              latitude: lat,
+              longitude: viewState.longitude,
+              latitude: viewState.latitude,
               mode: 'point',
-            });
+            })
+          }
+          style={{
+            backgroundColor: 'rgba(30, 30, 30, 0.95)',
+            color: 'white',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            borderRadius: '4px',
+            padding: '8px 16px',
+            cursor: 'pointer',
+            fontSize: '13px',
+            fontWeight: 'bold',
           }}
-          onClose={() => setContextMenu(null)}
-        />
-      )}
+        >
+          Precision Input (I)
+        </button>
+      </div>
 
       {/* Precision Input Modal */}
       <PrecisionInputModal
@@ -587,7 +474,7 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
       />
 
       {/* Hover tooltip */}
-      {hoverInfo?.object && drawingMode === 'select' && (
+      {hoverInfo?.object && (
         <div
           style={{
             position: 'absolute',
@@ -628,31 +515,6 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
       >
         {filteredData.features.length} assets
       </div>
-
-      {/* Drawing mode indicator */}
-      {drawingMode !== 'select' && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '10px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            backgroundColor: 'rgba(0, 0, 0, 0.85)',
-            color: 'white',
-            padding: '8px 16px',
-            borderRadius: '4px',
-            fontSize: '13px',
-            fontWeight: 'bold',
-            zIndex: 100,
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-          }}
-        >
-          {drawingMode.charAt(0).toUpperCase() + drawingMode.slice(1)} Mode
-          <span style={{ opacity: 0.7, marginLeft: '8px', fontSize: '11px' }}>
-            (Press ESC to exit)
-          </span>
-        </div>
-      )}
     </div>
   );
 }
