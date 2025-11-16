@@ -90,11 +90,23 @@ bun run db:seed
 ```env
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/geospatial_dashboard
 NODE_ENV=development
+VAPID_PUBLIC_KEY=your_vapid_public_key
+VAPID_PRIVATE_KEY=your_vapid_private_key
+VAPID_SUBJECT=mailto:ops@example.com
+# Optional Kafka integration
+# KAFKA_BROKERS=localhost:9092
+# KAFKA_TOPIC_NOTIFICATIONS=notifications
+# KAFKA_CLIENT_ID=geospatial-dashboard
+# KAFKA_GROUP_ID=notification-center
 ```
 
 **Client** (`apps/client/.env`):
 ```env
 VITE_MAPBOX_TOKEN=your_mapbox_token_here
+VITE_VAPID_PUBLIC_KEY=your_vapid_public_key
+# Optional WebSocket override if backend runs on a different host/port
+# VITE_WS_URL=ws://localhost:3000/ws
+# VITE_WS_PATH=/custom-ws
 ```
 
 Get your Mapbox token from: https://account.mapbox.com/access-tokens/
@@ -148,6 +160,30 @@ Health check endpoint
 
 ### WebSocket `/ws`
 Real-time updates for asset changes
+
+### POST `/api/notifications/subscribe`
+Register a Web Push subscription (called automatically by the UI)
+
+### DELETE `/api/notifications/subscribe`
+Remove a Web Push subscription by endpoint
+
+### POST `/api/notifications/test`
+Manually emit a notification (useful for validating Kafka, push, and WebSocket delivery)
+
+### Progressive Web App & Push Notifications
+- Offline-ready build powered by `vite-plugin-pwa` with automatic service worker registration
+- Runtime caching for API responses, static assets, and Mapbox resources (`apps/client/src/sw.ts`)
+- Push notification handling with rich payloads (title, body, URL) via the service worker
+- React hook + Blueprint UI to request notification permission and manage subscriptions
+- Configure Web Push by supplying `VITE_VAPID_PUBLIC_KEY` (generated with `npx web-push generate-vapid-keys`)
+
+Push subscription objects are logged in the browser console when users enable alerts—send them to your backend to deliver real push messages.
+
+### Notification Center
+- Centralized event emitter (`apps/server/src/notifications.ts`) that fans out messages to WebSocket clients, push subscribers, and optional Kafka consumers
+- Emits events automatically when assets are created, updated, deleted, or edited
+- Kafka support (via `kafkajs`) for ingesting notifications from other services (set `KAFKA_*` env vars)
+- REST hooks to manage push subscriptions and trigger manual test notifications
 
 ## Development
 

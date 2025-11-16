@@ -32,8 +32,21 @@ export interface GeoJSONFeatureCollection {
   features: GeoJSONFeature[];
 }
 
+export type NotificationSeverity = 'info' | 'success' | 'warning' | 'critical';
+
+export interface NotificationPayload {
+  id: string;
+  source: 'api' | 'websocket' | 'kafka' | 'system';
+  type: string;
+  severity: NotificationSeverity;
+  title: string;
+  message: string;
+  data?: Record<string, any>;
+  createdAt: string;
+}
+
 export interface WSMessage {
-  type: 'asset_update' | 'asset_create' | 'asset_delete' | 'ping' | 'pong' | 'connected';
+  type: 'asset_update' | 'asset_create' | 'asset_delete' | 'notification' | 'ping' | 'pong' | 'connected';
   data?: any;
   timestamp: string;
 }

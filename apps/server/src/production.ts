@@ -4,6 +4,7 @@ import { staticPlugin } from '@elysiajs/static';
 import { testConnection } from './db';
 import { routes } from './routes';
 import { websocket, setAppInstance } from './websocket';
+import { initNotificationCenter, shutdownNotificationCenter } from './notifications';
 import * as path from 'path';
 
 // Test database connection on startup
@@ -65,6 +66,7 @@ const app = new Elysia()
 
 // Set app instance for WebSocket broadcasting
 setAppInstance(app);
+await initNotificationCenter();
 
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 console.log('🗺️  Geospatial Dashboard (Production)');
@@ -72,3 +74,6 @@ console.log('━━━━━━━━━━━━━━━━━━━━━━�
 console.log(`🌐 Server: http://${app.server?.hostname}:${app.server?.port}`);
 console.log(`📂 Serving: ${CLIENT_DIST}`);
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+process.on('SIGTERM', shutdownNotificationCenter);
+process.on('SIGINT', shutdownNotificationCenter);

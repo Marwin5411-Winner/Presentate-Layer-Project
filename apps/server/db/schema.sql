@@ -137,3 +137,20 @@ SELECT
     ) as geojson
 FROM assets
 WHERE type = 'incident' AND deleted_at IS NULL;
+
+-- Push notification subscriptions
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    endpoint TEXT UNIQUE NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    expiration_time BIGINT,
+    user_agent TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TRIGGER update_push_subscriptions_updated_at
+    BEFORE UPDATE ON push_subscriptions
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();

@@ -3,7 +3,6 @@ import Map from 'react-map-gl/mapbox';
 import { DeckGL } from '@deck.gl/react';
 import type { PickingInfo } from '@deck.gl/core';
 import { GeoJsonLayer } from '@deck.gl/layers';
-import { _ContextMenuWidget as ContextMenuWidget } from '@deck.gl/widgets';
 import type { GeoJSONFeatureCollection, GeoJSONFeature, ViewState, AssetType, AssetStatus } from '../types';
 import { PrecisionInputModal } from './PrecisionInputModal';
 import { EditFeaturePanel } from './EditFeaturePanel';
@@ -158,33 +157,6 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
     }
   };
 
-  // Quick create point from context menu
-  const handleQuickCreatePoint = async (lng: number, lat: number) => {
-    try {
-      await createAsset({
-        name: `Point at ${lat.toFixed(4)}, ${lng.toFixed(4)}`,
-        type: 'poi',
-        status: 'active',
-        geometry: {
-          type: 'Point',
-          coordinates: [lng, lat],
-        },
-      });
-      (await getToaster()).show({
-        message: 'Point created',
-        intent: Intent.SUCCESS,
-        icon: 'map-marker',
-      });
-    } catch (error) {
-      console.error('Error creating point:', error);
-      (await getToaster()).show({
-        message: 'Failed to create point',
-        intent: Intent.DANGER,
-        icon: 'error',
-      });
-    }
-  };
-
   // Update an existing feature
   const handleUpdateFeature = async (
     id: string,
@@ -297,106 +269,6 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
       },
     }),
   ];
-
-  // Create ContextMenuWidget
-  const contextMenuWidget = new ContextMenuWidget({
-    position: { x: 0, y: 0 },
-    menuItems: [],
-    visible: false,
-    getMenuItems: (info: PickingInfo) => {
-      if (info.object) {
-        // Context menu for existing feature
-        const feature = info.object as GeoJSONFeature;
-        return [
-          { key: 'name', label: feature.properties.name },
-          { key: 'edit', label: 'Edit Properties' },
-          { key: 'delete', label: 'Delete' },
-        ];
-      }
-
-      // Context menu for empty map area
-      if (info.coordinate) {
-        return [
-          { key: 'add-point', label: 'Create Point Here' },
-          { key: 'add-zone', label: 'Create Zone (Polygon)' },
-          { key: 'add-circle', label: 'Create Circle' },
-          { key: 'add-route', label: 'Create Route (Line)' },
-          { key: 'divider-1', label: '---' },
-          { key: 'precision-input', label: 'Precision Input...' },
-          { key: 'divider-2', label: '---' },
-          { key: 'center-map', label: 'Center Map Here' },
-        ];
-      }
-
-      return [];
-    },
-    onMenuItemSelected: async (key: string, pickInfo: PickingInfo | null) => {
-      if (!pickInfo) return;
-
-      const feature = pickInfo.object as GeoJSONFeature;
-      const coordinate = pickInfo.coordinate;
-
-      switch (key) {
-        case 'edit':
-          if (feature && onFeatureClick) {
-            onFeatureClick(feature);
-          }
-          break;
-
-        case 'delete':
-          if (feature?.id) {
-            await handleDeleteFeature(feature.id);
-          }
-          break;
-
-        case 'add-point':
-          if (coordinate) {
-            await handleQuickCreatePoint(coordinate[0], coordinate[1]);
-          }
-          break;
-
-        case 'add-zone':
-        case 'add-circle':
-        case 'add-route':
-          if (coordinate) {
-            let mode: 'point' | 'polygon' | 'rectangle' | 'circle' | 'line' = 'polygon';
-            if (key === 'add-circle') mode = 'circle';
-            if (key === 'add-route') mode = 'line';
-
-            setPrecisionInputModal({
-              isOpen: true,
-              longitude: coordinate[0],
-              latitude: coordinate[1],
-              mode,
-            });
-          }
-          break;
-
-        case 'precision-input':
-          if (coordinate) {
-            setPrecisionInputModal({
-              isOpen: true,
-              longitude: coordinate[0],
-              latitude: coordinate[1],
-              mode: 'point',
-            });
-          }
-          break;
-
-        case 'center-map':
-          if (coordinate && deckRef.current) {
-            setViewState({
-              ...viewState,
-              longitude: coordinate[0],
-              latitude: coordinate[1],
-              zoom: Math.max(viewState.zoom, 14),
-            });
-          }
-          break;
-      }
-    },
-  });
-
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <DeckGL
@@ -405,7 +277,6 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
         onViewStateChange={({ viewState }) => setViewState(viewState as ViewState)}
         controller={true}
         layers={layers}
-        widgets={[contextMenuWidget]}
         getCursor={() => {
           return hoverInfo?.object ? 'pointer' : 'grab';
         }}

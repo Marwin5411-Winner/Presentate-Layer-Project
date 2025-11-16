@@ -9,8 +9,8 @@
   "scripts": {
     "dev:server": "bun --cwd apps/server dev",
     "dev:client": "bun --cwd apps/client dev",
-    "dev": "concurrently \"bun run dev:server\" \"bun run dev:client\"",
-    "build:client": "bun --cwd apps/client run build",
+    "dev": "concurrently \"bun run dev:server\" \"bun run dev:client --host\"",
+    "build:client": "bun --cwd apps/client build",
     "build": "bun run build:client",
     "start": "bun --cwd apps/server run src/index.ts",
     "db:setup": "psql -U postgres -d geospatial_dashboard -f apps/server/db/schema.sql",

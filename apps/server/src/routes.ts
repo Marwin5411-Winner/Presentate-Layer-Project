@@ -1,6 +1,17 @@
 import { Elysia, t } from 'elysia';
 import { sql } from './db';
-import type { AssetQueryParams, GeoJSONFeatureCollection, GeoJSONFeature } from './types';
+import {
+  emitAssetNotification,
+  savePushSubscription,
+  deletePushSubscription,
+  notificationCenter,
+} from './notifications';
+import type {
+  AssetQueryParams,
+  GeoJSONFeatureCollection,
+  GeoJSONFeature,
+  NotificationSeverity,
+} from './types';
 
 /**
  * API Routes for the geospatial dashboard
@@ -100,6 +111,85 @@ export const routes = new Elysia({ prefix: '/api' })
         type: t.Optional(t.String()),
         status: t.Optional(t.String()),
         bbox: t.Optional(t.String()),
+      }),
+    }
+  )
+
+  /**
+   * POST /api/notifications/subscribe
+   * Register or update a push subscription
+   */
+  .post(
+    '/notifications/subscribe',
+    async ({ body, request }) => {
+      const userAgent = request.headers.get('user-agent') || null;
+      const subscription = await savePushSubscription(body, userAgent);
+
+      return {
+        success: true,
+        subscription,
+      };
+    },
+    {
+      body: t.Object({
+        endpoint: t.String(),
+        expirationTime: t.Optional(t.Nullable(t.Number())),
+        keys: t.Object({
+          p256dh: t.String(),
+          auth: t.String(),
+        }),
+      }),
+    }
+  )
+
+  /**
+   * DELETE /api/notifications/subscribe
+   * Remove a push subscription by endpoint
+   */
+  .delete(
+    '/notifications/subscribe',
+    async ({ body }) => {
+      await deletePushSubscription(body.endpoint);
+      return { success: true };
+    },
+    {
+      body: t.Object({
+        endpoint: t.String(),
+      }),
+    }
+  )
+
+  /**
+   * POST /api/notifications/test
+   * Trigger a manual notification (for testing integrations)
+   */
+  .post(
+    '/notifications/test',
+    ({ body }) => {
+      const severity = body.severity as NotificationSeverity | undefined;
+
+      notificationCenter.publish(
+        {
+          type: body.type || 'custom',
+          title: body.title || 'Test notification',
+          message: body.message || 'This is a manually triggered notification.',
+          severity: severity || 'info',
+          data: body.data,
+        },
+        'api'
+      );
+
+      return { success: true };
+    },
+    {
+      body: t.Object({
+        type: t.Optional(t.String()),
+        title: t.Optional(t.String()),
+        message: t.Optional(t.String()),
+        severity: t.Optional(
+          t.Union([t.Literal('info'), t.Literal('success'), t.Literal('warning'), t.Literal('critical')])
+        ),
+        data: t.Optional(t.Record(t.String(), t.Any())),
       }),
     }
   )
@@ -240,6 +330,13 @@ export const routes = new Elysia({ prefix: '/api' })
           },
         };
 
+        emitAssetNotification({
+          action: 'created',
+          assetName: asset.name,
+          severity: 'success',
+          data: { feature },
+        });
+
         return feature;
       } catch (error) {
         console.error('Error creating asset:', error);
@@ -324,6 +421,13 @@ export const routes = new Elysia({ prefix: '/api' })
           },
         };
 
+        emitAssetNotification({
+          action: 'updated',
+          assetName: asset.name,
+          severity: 'info',
+          data: { feature },
+        });
+
         return feature;
       } catch (error) {
         console.error('Error updating asset:', error);
@@ -365,12 +469,19 @@ export const routes = new Elysia({ prefix: '/api' })
         UPDATE assets
         SET deleted_at = NOW()
         WHERE id = ${id} AND deleted_at IS NULL
-        RETURNING id
+        RETURNING id, name
       `;
 
       if (result.length === 0) {
         throw new Error('Asset not found or already deleted');
       }
+
+      emitAssetNotification({
+        action: 'deleted',
+        assetName: result[0].name,
+        severity: 'warning',
+        data: { id: result[0].id },
+      });
 
       return {
         success: true,
@@ -430,6 +541,13 @@ export const routes = new Elysia({ prefix: '/api' })
             ...(asset.properties || {}),
           },
         };
+
+        emitAssetNotification({
+          action: 'geometry_updated',
+          assetName: asset.name,
+          severity: 'info',
+          data: { feature },
+        });
 
         return feature;
       } catch (error) {

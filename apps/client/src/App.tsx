@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import {
   Navbar,
   Button,
@@ -13,6 +13,7 @@ import { AssetDrawer } from './components/AssetDrawer';
 import { LayerToggle } from './components/LayerToggle';
 import { useAssets } from './hooks/useAssets';
 import type { GeoJSONFeature, LayerConfig } from './types';
+import { usePushNotifications } from './pwa/usePushNotifications';
 
 // Import Blueprint.js styles
 import '@blueprintjs/core/lib/css/blueprint.css';
@@ -23,6 +24,15 @@ function App() {
   const [selectedAsset, setSelectedAsset] = useState<GeoJSONFeature | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [editFeature, setEditFeature] = useState<GeoJSONFeature | null>(null);
+  const {
+    isSupported: pushSupported,
+    permission: notificationPermission,
+    isSubscribed,
+    isProcessing: pushProcessing,
+    error: pushError,
+    subscribeToPush,
+    unsubscribeFromPush,
+  } = usePushNotifications();
 
   // Layer configuration
   const [layers, setLayers] = useState<LayerConfig[]>([
@@ -63,6 +73,28 @@ function App() {
     setEditFeature(feature);
   };
 
+  const handleNotificationToggle = useCallback(async () => {
+    try {
+      if (isSubscribed) {
+        await unsubscribeFromPush();
+      } else {
+        const subscription = await subscribeToPush();
+        if (subscription) {
+          console.log('Push subscription registered:', subscription.toJSON());
+        }
+      }
+    } catch (err) {
+      console.error('Failed to toggle push notifications:', err);
+    }
+  }, [isSubscribed, subscribeToPush, unsubscribeFromPush]);
+
+  const notificationStatusLabel =
+    notificationPermission === 'granted'
+      ? 'Notifications enabled'
+      : notificationPermission === 'denied'
+        ? 'Notifications blocked'
+        : 'Notifications off';
+
   return (
     <div className="bp5-dark" style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* Navbar */}
@@ -87,6 +119,34 @@ function App() {
             text="Refresh"
             style={{ color: '#ffffff' }}
           />
+          {pushSupported && (
+            <>
+              <Button
+                icon={isSubscribed ? 'notifications-updated' : 'notifications'}
+                minimal
+                outlined={!isSubscribed}
+                intent={isSubscribed ? 'success' : 'none'}
+                style={{ color: '#ffffff', marginLeft: '8px' }}
+                text={isSubscribed ? 'Notifications On' : 'Enable Alerts'}
+                loading={pushProcessing}
+                disabled={notificationPermission === 'denied' && !isSubscribed}
+                onClick={handleNotificationToggle}
+              />
+              <Tag
+                minimal
+                intent={
+                  notificationPermission === 'granted'
+                    ? 'success'
+                    : notificationPermission === 'denied'
+                      ? 'warning'
+                      : 'none'
+                }
+                style={{ marginLeft: '8px', color: '#ffffff' }}
+              >
+                {notificationStatusLabel}
+              </Tag>
+            </>
+          )}
         </Navbar.Group>
       </Navbar>
 
@@ -96,6 +156,13 @@ function App() {
           <div style={{ position: 'absolute', top: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 2000, width: '400px' }}>
             <Callout intent="danger" title="Error loading data">
               {error.message}
+            </Callout>
+          </div>
+        )}
+        {pushError && (
+          <div style={{ position: 'absolute', top: '90px', right: '20px', zIndex: 2000, maxWidth: '320px' }}>
+            <Callout intent="danger" title="Push notification error">
+              {pushError}
             </Callout>
           </div>
         )}

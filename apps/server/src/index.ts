@@ -3,6 +3,7 @@ import { cors } from '@elysiajs/cors';
 import { testConnection } from './db';
 import { routes } from './routes';
 import { websocket, setAppInstance } from './websocket';
+import { initNotificationCenter, shutdownNotificationCenter } from './notifications';
 
 // Test database connection on startup
 await testConnection();
@@ -37,6 +38,7 @@ const app = new Elysia()
   // Global error handler
   .onError(({ code, error, set }) => {
     console.error('Server error:', error);
+    const errorMessage = error instanceof Error ? error.message : undefined;
 
     if (code === 'NOT_FOUND') {
       set.status = 404;
@@ -46,7 +48,7 @@ const app = new Elysia()
     set.status = 500;
     return {
       error: 'Internal Server Error',
-      message: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      message: process.env.NODE_ENV === 'development' ? errorMessage : undefined,
     };
   })
 
@@ -55,6 +57,7 @@ const app = new Elysia()
 
 // Set app instance for WebSocket broadcasting
 setAppInstance(app);
+await initNotificationCenter();
 
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 console.log('🗺️  Geospatial Dashboard Server');
@@ -63,3 +66,7 @@ console.log(`🦊 HTTP: http://${app.server?.hostname}:${app.server?.port}`);
 console.log(`🔌 WebSocket: ws://${app.server?.hostname}:${app.server?.port}/ws`);
 console.log(`📡 API: http://${app.server?.hostname}:${app.server?.port}/api`);
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+// Gracefully shutdown notification center
+process.on('SIGTERM', shutdownNotificationCenter);
+process.on('SIGINT', shutdownNotificationCenter);

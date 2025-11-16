@@ -15,12 +15,12 @@ let subscriberCount = 0;
 /**
  * Store reference to the Elysia app instance for global publishing
  */
-let appInstance: Elysia | null = null;
+let appInstance: any = null;
 
 /**
  * Set the app instance for broadcasting
  */
-export function setAppInstance(app: Elysia) {
+export function setAppInstance(app: any) {
   appInstance = app;
 }
 
@@ -46,6 +46,11 @@ let lastCheckTime = new Date();
 const POLL_INTERVAL = 5000; // 5 seconds
 
 async function pollForUpdates() {
+  // Only poll if we have active subscribers
+  if (subscriberCount === 0) {
+    return;
+  }
+
   try {
     const currentTime = new Date();
 
@@ -160,7 +165,12 @@ async function pollForUpdates() {
 
     lastCheckTime = currentTime;
   } catch (error) {
-    console.error('Error polling for updates:', error);
+    console.error('❌ Error polling for updates:', {
+      error,
+      message: error instanceof Error ? error.message : undefined,
+      subscriberCount,
+    });
+    // Don't throw - keep polling even if one cycle fails
   }
 }
 
@@ -188,63 +198,88 @@ export function stopPolling() {
 export const websocket = new Elysia()
   .ws('/ws', {
     open(ws) {
-      // Subscribe to the assets updates topic
-      ws.subscribe(ASSETS_TOPIC);
-      subscriberCount++;
+      try {
+        console.log('🔌 WebSocket open handler called');
 
-      console.log(`🔌 Client connected. Total subscribers: ${subscriberCount}`);
+        // Subscribe to the assets updates topic
+        ws.subscribe(ASSETS_TOPIC);
+        subscriberCount++;
 
-      // Send welcome message
-      ws.send(
-        JSON.stringify({
-          type: 'connected',
-          data: { message: 'Connected to geospatial dashboard' },
-          timestamp: new Date().toISOString(),
-        })
-      );
+        console.log(`✅ Client connected. Total subscribers: ${subscriberCount}`);
 
-      // Start polling if this is the first connection
-      if (subscriberCount === 1) {
-        startPolling();
+        // Send welcome message
+        try {
+          ws.send(
+            JSON.stringify({
+              type: 'connected',
+              data: { message: 'Connected to geospatial dashboard' },
+              timestamp: new Date().toISOString(),
+            })
+          );
+          console.log('📤 Welcome message sent');
+        } catch (sendError) {
+          console.error('❌ Error sending welcome message:', sendError);
+        }
+
+        // Start polling if this is the first connection
+        if (subscriberCount === 1) {
+          console.log('📡 Starting database polling (first connection)');
+          startPolling();
+        }
+      } catch (error) {
+        console.error('❌ Error in WebSocket open handler:', error);
+        subscriberCount = Math.max(0, subscriberCount - 1);
+        throw error;
       }
     },
 
     message(ws, message) {
       try {
         const data = typeof message === 'string' ? JSON.parse(message) : message;
+        console.log('📨 Message received:', data.type);
 
         // Handle ping/pong for connection keepalive
         if (data.type === 'ping') {
-          ws.send(
-            JSON.stringify({
-              type: 'pong',
-              timestamp: new Date().toISOString(),
-            })
-          );
+          try {
+            ws.send(
+              JSON.stringify({
+                type: 'pong',
+                timestamp: new Date().toISOString(),
+              })
+            );
+            console.log('💓 Pong sent');
+          } catch (sendError) {
+            console.error('❌ Error sending pong:', sendError);
+          }
         }
       } catch (error) {
-        console.error('Error handling WebSocket message:', error);
+        console.error('❌ Error handling WebSocket message:', error);
       }
     },
 
     close(ws, code, message) {
-      // Unsubscribe from the topic
-      ws.unsubscribe(ASSETS_TOPIC);
-      subscriberCount = Math.max(0, subscriberCount - 1);
+      try {
+        console.log(`🔌 WebSocket close handler called (code: ${code}, message: ${message || 'none'})`);
 
-      console.log(`🔌 Client disconnected (code: ${code}). Total subscribers: ${subscriberCount}`);
+        // Unsubscribe from the topic
+        try {
+          ws.unsubscribe(ASSETS_TOPIC);
+        } catch (unsubError) {
+          console.error('❌ Error unsubscribing:', unsubError);
+        }
 
-      // Stop polling if no more connections
-      if (subscriberCount === 0) {
-        stopPolling();
+        subscriberCount = Math.max(0, subscriberCount - 1);
+
+        console.log(`✅ Client disconnected. Total subscribers: ${subscriberCount}`);
+
+        // Stop polling if no more connections
+        if (subscriberCount === 0) {
+          console.log('📡 Stopping database polling (no more connections)');
+          stopPolling();
+        }
+      } catch (error) {
+        console.error('❌ Error in close handler:', error);
       }
-    },
-
-    error(ws, error) {
-      console.error('❌ WebSocket error:', error);
-      // Clean up the connection
-      ws.unsubscribe(ASSETS_TOPIC);
-      subscriberCount = Math.max(0, subscriberCount - 1);
     },
   });
 
