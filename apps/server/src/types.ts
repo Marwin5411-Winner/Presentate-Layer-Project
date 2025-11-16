@@ -55,7 +55,7 @@ export interface GeoJSONFeatureCollection {
 /**
  * WebSocket message types
  */
-export type WSMessageType = 'asset_update' | 'asset_create' | 'asset_delete' | 'ping' | 'pong';
+export type WSMessageType = 'asset_update' | 'asset_create' | 'asset_delete' | 'ping' | 'pong' | 'connected';
 
 /**
  * WebSocket message structure
