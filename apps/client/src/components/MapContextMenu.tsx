@@ -9,6 +9,7 @@ interface MapContextMenuProps {
   onCreatePoint: (lng: number, lat: number) => void;
   onCreateZone: (lng: number, lat: number) => void;
   onPrecisionInput: (lng: number, lat: number) => void;
+  onCopyLocation: (lng: number, lat: number) => void;
   onClose: () => void;
 }
 
@@ -23,6 +24,7 @@ export function MapContextMenu({
   onCreatePoint,
   onCreateZone,
   onPrecisionInput,
+  onCopyLocation,
   onClose,
 }: MapContextMenuProps) {
   return (
@@ -69,10 +71,13 @@ export function MapContextMenu({
         <MenuItem
           icon={IconNames.GEOLOCATION}
           text={`${latitude.toFixed(6)}, ${longitude.toFixed(6)}`}
-          disabled
           labelElement={
-            <span style={{ fontSize: '11px', color: '#888' }}>Coordinates</span>
+            <span style={{ fontSize: '11px', color: '#888' }}>Click to Copy</span>
           }
+          onClick={() => {
+            onCopyLocation(longitude, latitude);
+            onClose();
+          }}
         />
       </Menu>
     </div>

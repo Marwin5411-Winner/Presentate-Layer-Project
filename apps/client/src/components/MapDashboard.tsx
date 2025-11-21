@@ -6,8 +6,9 @@ import { GeoJsonLayer } from '@deck.gl/layers';
 import type { GeoJSONFeatureCollection, GeoJSONFeature, ViewState, AssetType, AssetStatus } from '../types';
 import { PrecisionInputModal } from './PrecisionInputModal';
 import { EditFeaturePanel } from './EditFeaturePanel';
+import { MapContextMenu } from './MapContextMenu';
 import { createAsset, updateAsset, deleteAsset } from '../utils/api';
-import { OverlayToaster, Intent } from '@blueprintjs/core';
+import { OverlayToaster, Intent, Button } from '@blueprintjs/core';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 interface MapDashboardProps {
@@ -102,13 +103,31 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
     longitude: number;
     latitude: number;
     mode: 'point' | 'polygon' | 'rectangle' | 'circle' | 'line';
+    initialGeometry?: GeoJSON.Geometry;
   }>({
     isOpen: false,
     longitude: 0,
     latitude: 0,
     mode: 'point',
   });
+  const [contextMenu, setContextMenu] = useState<{
+    isOpen: boolean;
+    x: number;
+    y: number;
+    longitude: number;
+    latitude: number;
+  }>({
+    isOpen: false,
+    x: 0,
+    y: 0,
+    longitude: 0,
+    latitude: 0,
+  });
+  const [drawingMode, setDrawingMode] = useState<boolean>(false);
+  const [drawingPoints, setDrawingPoints] = useState<number[][]>([]);
   const deckRef = useRef<any>(null);
+  // Long press timer ref
+  const longPressTimer = useRef<Timer | null>(null);
 
   // Filter data based on visible layers
   const filteredData: GeoJSONFeatureCollection = {
@@ -118,9 +137,55 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
       : data.features,
   };
 
+  // Handle touch events for long press (iPad/Tablet support)
+  const handleTouchStart = useCallback((info: PickingInfo) => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+    }
+
+    // Start a timer for long press (500ms)
+    longPressTimer.current = setTimeout(() => {
+      if (info.coordinate) {
+        setContextMenu({
+          isOpen: true,
+          x: info.x,
+          y: info.y,
+          longitude: info.coordinate[0],
+          latitude: info.coordinate[1],
+        });
+      }
+    }, 500);
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
+
+  const handleTouchMove = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
+
   // Handle feature click for feature selection
   const handleClick = useCallback(
     (info: PickingInfo) => {
+      // If context menu is open, close it
+      if (contextMenu.isOpen) {
+        setContextMenu((prev) => ({ ...prev, isOpen: false }));
+        return true;
+      }
+
+      // If in drawing mode, add point
+      if (drawingMode && info.coordinate) {
+        setDrawingPoints((prev) => [...prev, info.coordinate as number[]]);
+        return true;
+      }
+
       // Feature selection
       if (info.object && onFeatureClick) {
         onFeatureClick(info.object as GeoJSONFeature);
@@ -129,8 +194,46 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
 
       return false;
     },
-    [onFeatureClick]
+    [onFeatureClick, contextMenu.isOpen, drawingMode]
   );
+
+  const finishDrawing = () => {
+    if (drawingPoints.length < 3) {
+      // Need at least 3 points for a polygon
+       getToaster().then(toaster => toaster.show({
+        message: 'Need at least 3 points for a zone',
+        intent: Intent.WARNING,
+      }));
+      return;
+    }
+
+    // Close the ring
+    const points = [...drawingPoints];
+    if (points[0][0] !== points[points.length - 1][0] || points[0][1] !== points[points.length - 1][1]) {
+      points.push(points[0]);
+    }
+
+    const geometry: GeoJSON.Polygon = {
+      type: 'Polygon',
+      coordinates: [points],
+    };
+
+    setPrecisionInputModal({
+      isOpen: true,
+      longitude: points[0][0],
+      latitude: points[0][1],
+      mode: 'polygon',
+      initialGeometry: geometry
+    });
+
+    setDrawingMode(false);
+    setDrawingPoints([]);
+  };
+
+  const cancelDrawing = () => {
+    setDrawingMode(false);
+    setDrawingPoints([]);
+  };
 
   // Create a new feature from precision input
   const handlePrecisionCreate = async (data: {
@@ -214,28 +317,34 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
 
       switch (e.key.toLowerCase()) {
         case 'escape':
-          setPrecisionInputModal((prev) => ({ ...prev, isOpen: false }));
-          if (editFeature && onEditComplete) {
-            onEditComplete();
+          if (drawingMode) {
+             cancelDrawing();
+          } else {
+             setPrecisionInputModal((prev) => ({ ...prev, isOpen: false }));
+             if (editFeature && onEditComplete) {
+               onEditComplete();
+             }
           }
           break;
         case 'i':
-          setPrecisionInputModal({
-            isOpen: true,
-            longitude: viewState.longitude,
-            latitude: viewState.latitude,
-            mode: 'point',
-          });
+          if (!drawingMode) {
+            setPrecisionInputModal({
+              isOpen: true,
+              longitude: viewState.longitude,
+              latitude: viewState.latitude,
+              mode: 'point',
+            });
+          }
           break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [viewState, editFeature, onEditComplete]);
+  }, [viewState, editFeature, onEditComplete, drawingMode]);
 
   // Create Deck.gl layers
-  const layers = [
+  const layers: any[] = [
     new GeoJsonLayer({
       id: 'geojson-layer',
       data: filteredData as any,
@@ -269,17 +378,89 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
       },
     }),
   ];
+
+  // Add drawing layer if active
+  if (drawingMode && drawingPoints.length > 0) {
+    const drawingLayer = new GeoJsonLayer({
+      id: 'drawing-layer',
+      data: {
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            geometry: {
+              type: 'LineString', // Use LineString while drawing, visualize as Polygon if closed? Or just lines
+              coordinates: drawingPoints,
+            },
+            properties: {},
+          },
+          // Add points for vertices
+          ...drawingPoints.map((pt, i) => ({
+             type: 'Feature',
+             geometry: { type: 'Point', coordinates: pt },
+             properties: { index: i }
+          }))
+        ],
+      },
+      filled: false,
+      stroked: true,
+      getLineColor: [255, 255, 0, 255],
+      getLineWidth: 2,
+      getPointRadius: 5,
+      getFillColor: [255, 255, 0, 100],
+    });
+    layers.push(drawingLayer);
+  }
+
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+    <div style={{ width: '100%', height: '100%', position: 'relative' }}
+         onContextMenu={(e) => {
+             e.preventDefault();
+             if (deckRef.current && deckRef.current.deck) {
+                 // Calculate position relative to the canvas/viewport
+                 const deck = deckRef.current.deck;
+                 const canvas = deck.canvas;
+                 if (canvas) {
+                     const rect = canvas.getBoundingClientRect();
+                     const x = e.clientX - rect.left;
+                     const y = e.clientY - rect.top;
+
+                     // Get viewport
+                     const viewport = deck.viewManager.getViewports()[0];
+                     if (viewport) {
+                         const coords = viewport.unproject([x, y]);
+                         if (coords) {
+                             setContextMenu({
+                                 isOpen: true,
+                                 x: e.clientX,
+                                 y: e.clientY,
+                                 longitude: coords[0],
+                                 latitude: coords[1],
+                             });
+                         }
+                     }
+                 }
+             }
+         }}
+    >
       <DeckGL
         ref={deckRef}
         viewState={viewState}
         onViewStateChange={({ viewState }) => setViewState(viewState as ViewState)}
-        controller={true}
+        controller={{
+           doubleClickZoom: !drawingMode, // Disable double click zoom when drawing
+        }}
         layers={layers}
         getCursor={() => {
+          if (drawingMode) return 'crosshair';
           return hoverInfo?.object ? 'pointer' : 'grab';
         }}
+        onClick={handleClick} // Use onClick instead of passing it to GeoJsonLayer if we want to capture map clicks
+        onDragStart={handleTouchStart} // For touch devices
+        onDragEnd={handleTouchEnd}
+        onTouchStart={handleTouchStart} // DeckGL forwards these?
+        onTouchEnd={handleTouchEnd}
+        onTouchMove={handleTouchMove}
       >
         <Map
           mapboxAccessToken={MAPBOX_TOKEN}
@@ -289,7 +470,79 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
         />
       </DeckGL>
 
-      {/* Precision Input Toolbar Button */}
+
+      {contextMenu.isOpen && (
+        <MapContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          longitude={contextMenu.longitude}
+          latitude={contextMenu.latitude}
+          onCreatePoint={(lng, lat) => {
+            setPrecisionInputModal({
+              isOpen: true,
+              longitude: lng,
+              latitude: lat,
+              mode: 'point',
+            });
+          }}
+          onCreateZone={(lng, lat) => {
+             // Start drawing mode
+             setDrawingMode(true);
+             setDrawingPoints([[lng, lat]]);
+             getToaster().then(t => t.show({
+                message: 'Click to add points. Click "Finish" when done.',
+                intent: Intent.PRIMARY,
+                icon: 'edit'
+             }));
+          }}
+          onPrecisionInput={(lng, lat) => {
+            setPrecisionInputModal({
+              isOpen: true,
+              longitude: lng,
+              latitude: lat,
+              mode: 'point',
+            });
+          }}
+          onCopyLocation={(lng, lat) => {
+             const text = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+             navigator.clipboard.writeText(text).then(() => {
+                getToaster().then(t => t.show({
+                   message: 'Coordinates copied to clipboard',
+                   intent: Intent.SUCCESS,
+                   icon: 'clipboard'
+                }));
+             });
+          }}
+          onClose={() => setContextMenu(prev => ({ ...prev, isOpen: false }))}
+        />
+      )}
+
+      {/* Drawing Toolbar / Finish Button */}
+      {drawingMode && (
+         <div
+            style={{
+                position: 'absolute',
+                top: '20px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 1100,
+                display: 'flex',
+                gap: '10px',
+                backgroundColor: 'rgba(0,0,0,0.8)',
+                padding: '10px',
+                borderRadius: '8px'
+            }}
+         >
+             <span style={{ color: 'white', alignSelf: 'center', fontWeight: 'bold' }}>
+                 Drawing Zone ({drawingPoints.length} points)
+             </span>
+             <Button intent={Intent.SUCCESS} onClick={finishDrawing} icon="tick">Finish</Button>
+             <Button intent={Intent.DANGER} onClick={cancelDrawing} icon="cross">Cancel</Button>
+         </div>
+      )}
+
+      {/* Precision Input Toolbar Button - Only show if not drawing */}
+      {!drawingMode && (
       <div
         style={{
           position: 'absolute',
@@ -322,15 +575,18 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
           Precision Input (I)
         </button>
       </div>
+      )}
 
       {/* Precision Input Modal */}
       <PrecisionInputModal
+        key={`${precisionInputModal.isOpen}-${precisionInputModal.mode}-${precisionInputModal.longitude}-${precisionInputModal.latitude}`}
         isOpen={precisionInputModal.isOpen}
         onClose={() => setPrecisionInputModal((prev) => ({ ...prev, isOpen: false }))}
         onSave={handlePrecisionCreate}
         initialLongitude={precisionInputModal.longitude}
         initialLatitude={precisionInputModal.latitude}
         mode={precisionInputModal.mode}
+        initialGeometry={precisionInputModal.initialGeometry}
       />
 
       {/* Edit Feature Panel */}
