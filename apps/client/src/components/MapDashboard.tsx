@@ -414,13 +414,7 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}
-         onContextMenu={(e) => e.preventDefault()}
-    >
-      <DeckGL
-        ref={deckRef}
-        viewState={viewState}
-        onViewStateChange={({ viewState }) => setViewState(viewState as ViewState)}
-        onContextMenu={(e: any) => {
+         onContextMenu={(e) => {
              e.preventDefault();
              if (deckRef.current && deckRef.current.deck) {
                  // Calculate position relative to the canvas/viewport
@@ -447,7 +441,12 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
                      }
                  }
              }
-        }}
+         }}
+    >
+      <DeckGL
+        ref={deckRef}
+        viewState={viewState}
+        onViewStateChange={({ viewState }) => setViewState(viewState as ViewState)}
         controller={{
            doubleClickZoom: !drawingMode, // Disable double click zoom when drawing
         }}
