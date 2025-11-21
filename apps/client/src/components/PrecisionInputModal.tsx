@@ -25,6 +25,7 @@ interface PrecisionInputModalProps {
   initialLongitude?: number;
   initialLatitude?: number;
   mode: 'point' | 'polygon' | 'rectangle' | 'circle' | 'line';
+  initialGeometry?: GeoJSON.Geometry;
 }
 
 /**
@@ -37,6 +38,7 @@ export function PrecisionInputModal({
   initialLongitude = 0,
   initialLatitude = 0,
   mode,
+  initialGeometry,
 }: PrecisionInputModalProps) {
   const [name, setName] = useState('');
   const [type, setType] = useState<AssetType>('poi');
@@ -51,7 +53,37 @@ export function PrecisionInputModal({
   useEffect(() => {
     setLatitude(initialLatitude.toFixed(6));
     setLongitude(initialLongitude.toFixed(6));
-  }, [initialLatitude, initialLongitude]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
+
+  useEffect(() => {
+    // If initialGeometry is provided and matches the mode, populate fields
+    if (initialGeometry) {
+      if ((mode === 'polygon' || mode === 'line') && (initialGeometry.type === 'Polygon' || initialGeometry.type === 'LineString')) {
+        const coords = initialGeometry.type === 'Polygon'
+          ? (initialGeometry as GeoJSON.Polygon).coordinates[0]
+          : (initialGeometry as GeoJSON.LineString).coordinates;
+
+        // Exclude the last point for polygon if it's the same as first (closed ring) to look cleaner in text area
+        let displayCoords = coords;
+        if (initialGeometry.type === 'Polygon' && coords.length > 0) {
+           const first = coords[0];
+           const last = coords[coords.length - 1];
+           if (first[0] === last[0] && first[1] === last[1]) {
+             displayCoords = coords.slice(0, coords.length - 1);
+           }
+        }
+
+        const coordsText = displayCoords.map(pt => `${pt[0].toFixed(6)}, ${pt[1].toFixed(6)}`).join('\n');
+        setCoordinates(coordsText);
+
+        // Set type to zone if polygon/line
+        if (mode === 'polygon') setType('zone');
+        if (mode === 'line') setType('route');
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
 
   const handleSave = () => {
     try {
