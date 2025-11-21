@@ -30,10 +30,10 @@ export function MapContextMenu({
   return (
     <div
       style={{
-        position: 'absolute',
+        position: 'fixed',
         left: x,
         top: y,
-        zIndex: 1000,
+        zIndex: 2000,
         backgroundColor: '#1E1E1E',
         borderRadius: '4px',
         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)',

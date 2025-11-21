@@ -173,7 +173,12 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
 
   // Handle feature click for feature selection
   const handleClick = useCallback(
-    (info: PickingInfo) => {
+    (info: PickingInfo, event: any) => {
+      // Ignore right clicks (which trigger context menu)
+      if (event && event.srcEvent && event.srcEvent.button === 2) {
+        return false;
+      }
+
       // If context menu is open, close it
       if (contextMenu.isOpen) {
         setContextMenu((prev) => ({ ...prev, isOpen: false }));
