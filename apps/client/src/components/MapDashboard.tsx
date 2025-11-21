@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import Map from 'react-map-gl/mapbox';
-import { DeckGL } from '@deck.gl/react';
+import { DeckGL, useWidget } from '@deck.gl/react';
+import { _ContextMenuWidget as ContextMenuWidget } from '@deck.gl/react';
 import type { PickingInfo } from '@deck.gl/core';
 import { GeoJsonLayer } from '@deck.gl/layers';
 import type { GeoJSONFeatureCollection, GeoJSONFeature, ViewState, AssetType, AssetStatus } from '../types';
@@ -27,6 +28,7 @@ const INITIAL_VIEW_STATE: ViewState = {
   pitch: 0,
   bearing: 0,
 };
+
 
 // Mapbox token - in production, this should come from environment variables
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || '';
@@ -94,6 +96,12 @@ const getToaster = async () => {
   }
   return toasterInstance;
 };
+
+
+
+//Get Menu
+
+
 
 export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature, onEditComplete }: MapDashboardProps) {
   const [viewState, setViewState] = useState<ViewState>(INITIAL_VIEW_STATE);
@@ -462,12 +470,14 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
         onTouchEnd={handleTouchEnd}
         onTouchMove={handleTouchMove}
       >
+        
         <Map
           mapboxAccessToken={MAPBOX_TOKEN}
           mapStyle="mapbox://styles/mapbox/dark-v11"
           attributionControl={false}
           reuseMaps
         />
+
       </DeckGL>
 
 
