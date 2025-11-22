@@ -106,6 +106,12 @@ const getPointRadius = (type: string, status: string): number => {
   return type === 'vehicle' ? 8 : type === 'incident' ? 10 : 6;
 };
 
+
+
+//Get Menu
+
+
+
 export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature, onEditComplete }: MapDashboardProps) {
   const mapDiv = useRef<HTMLDivElement>(null);
   const viewRef = useRef<MapView | null>(null);
