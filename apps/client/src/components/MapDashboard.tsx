@@ -1,16 +1,20 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import Map from 'react-map-gl/mapbox';
-import { DeckGL, useWidget } from '@deck.gl/react';
-import { _ContextMenuWidget as ContextMenuWidget } from '@deck.gl/react';
-import type { PickingInfo } from '@deck.gl/core';
-import { GeoJsonLayer } from '@deck.gl/layers';
-import type { GeoJSONFeatureCollection, GeoJSONFeature, ViewState, AssetType, AssetStatus } from '../types';
+import { useEffect, useRef, useState } from 'react';
+import Map from '@arcgis/core/Map';
+import MapView from '@arcgis/core/views/MapView';
+import GraphicsLayer from '@arcgis/core/layers/GraphicsLayer';
+import Graphic from '@arcgis/core/Graphic';
+import SketchViewModel from '@arcgis/core/widgets/Sketch/SketchViewModel';
+import Point from '@arcgis/core/geometry/Point';
+import Polygon from '@arcgis/core/geometry/Polygon';
+import Polyline from '@arcgis/core/geometry/Polyline';
+import { OverlayToaster, Intent } from '@blueprintjs/core';
+import '@arcgis/core/assets/esri/themes/dark/main.css';
+
+import type { GeoJSONFeatureCollection, GeoJSONFeature, AssetType, AssetStatus } from '../types';
+import { MapContextMenu } from './MapContextMenu';
 import { PrecisionInputModal } from './PrecisionInputModal';
 import { EditFeaturePanel } from './EditFeaturePanel';
-import { MapContextMenu } from './MapContextMenu';
 import { createAsset, updateAsset, deleteAsset } from '../utils/api';
-import { OverlayToaster, Intent, Button } from '@blueprintjs/core';
-import 'mapbox-gl/dist/mapbox-gl.css';
 
 interface MapDashboardProps {
   data: GeoJSONFeatureCollection;
@@ -20,81 +24,86 @@ interface MapDashboardProps {
   onEditComplete?: () => void;
 }
 
-// Default view state (San Francisco)
-const INITIAL_VIEW_STATE: ViewState = {
-  latitude: 37.7749,
-  longitude: -122.4194,
-  zoom: 12,
-  pitch: 0,
-  bearing: 0,
-};
-
-
-// Mapbox token - in production, this should come from environment variables
-const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || '';
-
-/**
- * Color mapping for different asset types and statuses
- */
-const getFeatureColor = (feature: GeoJSONFeature): [number, number, number, number] => {
-  const { type, status } = feature.properties;
-
-  // Status-based colors (override type colors)
-  if (status === 'critical') return [220, 38, 38, 200]; // Red
-  if (status === 'warning') return [234, 179, 8, 200]; // Yellow
-
-  // Type-based colors
-  switch (type) {
-    case 'vehicle':
-      return [59, 130, 246, 200]; // Blue
-    case 'incident':
-      return [239, 68, 68, 200]; // Red
-    case 'poi':
-      return [34, 197, 94, 200]; // Green
-    case 'zone':
-      return [168, 85, 247, 100]; // Purple (semi-transparent for polygons)
-    case 'route':
-      return [249, 115, 22, 200]; // Orange
-    default:
-      return [156, 163, 175, 200]; // Gray
-  }
-};
-
-/**
- * Get point radius based on asset type
- */
-const getPointRadius = (feature: GeoJSONFeature): number => {
-  const { type, status } = feature.properties;
-
-  if (status === 'critical') return 12;
-  if (status === 'warning') return 10;
-
-  switch (type) {
-    case 'vehicle':
-      return 8;
-    case 'incident':
-      return 10;
-    case 'poi':
-      return 6;
-    default:
-      return 5;
-  }
-};
-
-/**
- * Get line width for routes
- */
-const getLineWidth = (feature: GeoJSONFeature): number => {
-  return feature.properties.type === 'route' ? 3 : 2;
-};
-
-// Create a toaster instance (initialized on first use)
+// Create a toaster instance
 let toasterInstance: any = null;
 const getToaster = async () => {
   if (!toasterInstance) {
     toasterInstance = await OverlayToaster.create({ position: 'top' });
   }
   return toasterInstance;
+};
+
+// Helper to convert GeoJSON feature to ArcGIS Graphic
+const geoJSONToGraphic = (feature: GeoJSONFeature): Graphic | null => {
+  const { geometry, properties } = feature;
+
+  let symbol;
+  const color = getFeatureColor(properties.type, properties.status);
+
+  if (geometry.type === 'Point') {
+    symbol = {
+      type: "simple-marker",
+      color: color,
+      size: getPointRadius(properties.type, properties.status),
+      outline: { color: [255, 255, 255, 0.5], width: 1 }
+    };
+    return new Graphic({
+      geometry: new Point({
+        longitude: geometry.coordinates[0],
+        latitude: geometry.coordinates[1]
+      }),
+      symbol: symbol,
+      attributes: properties
+    });
+  } else if (geometry.type === 'Polygon') {
+    symbol = {
+      type: "simple-fill",
+      color: [...color.slice(0, 3), 0.4], // Transparent fill
+      outline: { color: color, width: 2 }
+    };
+    return new Graphic({
+      geometry: new Polygon({
+        rings: geometry.coordinates
+      }),
+      symbol: symbol,
+      attributes: properties
+    });
+  } else if (geometry.type === 'LineString') {
+    symbol = {
+      type: "simple-line",
+      color: color,
+      width: 3
+    };
+    return new Graphic({
+      geometry: new Polyline({
+        paths: [geometry.coordinates]
+      }),
+      symbol: symbol,
+      attributes: properties
+    });
+  }
+
+  return null;
+};
+
+const getFeatureColor = (type: string, status: string): number[] => {
+  if (status === 'critical') return [220, 38, 38]; // Red
+  if (status === 'warning') return [234, 179, 8]; // Yellow
+
+  switch (type) {
+    case 'vehicle': return [59, 130, 246]; // Blue
+    case 'incident': return [239, 68, 68]; // Red
+    case 'poi': return [34, 197, 94]; // Green
+    case 'zone': return [168, 85, 247]; // Purple
+    case 'route': return [249, 115, 22]; // Orange
+    default: return [156, 163, 175]; // Gray
+  }
+};
+
+const getPointRadius = (type: string, status: string): number => {
+  if (status === 'critical') return 12;
+  if (status === 'warning') return 10;
+  return type === 'vehicle' ? 8 : type === 'incident' ? 10 : 6;
 };
 
 
@@ -104,8 +113,25 @@ const getToaster = async () => {
 
 
 export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature, onEditComplete }: MapDashboardProps) {
-  const [viewState, setViewState] = useState<ViewState>(INITIAL_VIEW_STATE);
-  const [hoverInfo, setHoverInfo] = useState<PickingInfo | null>(null);
+  const mapDiv = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<MapView | null>(null);
+  const graphicsLayerRef = useRef<GraphicsLayer | null>(null);
+  const sketchLayerRef = useRef<GraphicsLayer | null>(null);
+  const sketchVMRef = useRef<SketchViewModel | null>(null);
+  const onFeatureClickRef = useRef(onFeatureClick);
+
+  useEffect(() => {
+    onFeatureClickRef.current = onFeatureClick;
+  }, [onFeatureClick]);
+
+  const [contextMenu, setContextMenu] = useState<{
+    isOpen: boolean;
+    x: number;
+    y: number;
+    longitude: number;
+    latitude: number;
+  }>({ isOpen: false, x: 0, y: 0, longitude: 0, latitude: 0 });
+
   const [precisionInputModal, setPrecisionInputModal] = useState<{
     isOpen: boolean;
     longitude: number;
@@ -118,132 +144,199 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
     latitude: 0,
     mode: 'point',
   });
-  const [contextMenu, setContextMenu] = useState<{
-    isOpen: boolean;
-    x: number;
-    y: number;
-    longitude: number;
-    latitude: number;
-  }>({
-    isOpen: false,
-    x: 0,
-    y: 0,
-    longitude: 0,
-    latitude: 0,
-  });
-  const [drawingMode, setDrawingMode] = useState<boolean>(false);
-  const [drawingPoints, setDrawingPoints] = useState<number[][]>([]);
-  const deckRef = useRef<any>(null);
-  // Long press timer ref
-  const longPressTimer = useRef<Timer | null>(null);
 
-  // Filter data based on visible layers
-  const filteredData: GeoJSONFeatureCollection = {
-    type: 'FeatureCollection',
-    features: visibleLayers
-      ? data.features.filter((f) => visibleLayers.has(f.properties.type))
-      : data.features,
-  };
+  // Initialize Map
+  useEffect(() => {
+    if (!mapDiv.current) return;
 
-  // Handle touch events for long press (iPad/Tablet support)
-  const handleTouchStart = useCallback((info: PickingInfo) => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-    }
-
-    // Start a timer for long press (500ms)
-    longPressTimer.current = setTimeout(() => {
-      if (info.coordinate) {
-        setContextMenu({
-          isOpen: true,
-          x: info.x,
-          y: info.y,
-          longitude: info.coordinate[0],
-          latitude: info.coordinate[1],
-        });
-      }
-    }, 500);
-  }, []);
-
-  const handleTouchEnd = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  }, []);
-
-  const handleTouchMove = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  }, []);
-
-  // Handle feature click for feature selection
-  const handleClick = useCallback(
-    (info: PickingInfo) => {
-      // If context menu is open, close it
-      if (contextMenu.isOpen) {
-        setContextMenu((prev) => ({ ...prev, isOpen: false }));
-        return true;
-      }
-
-      // If in drawing mode, add point
-      if (drawingMode && info.coordinate) {
-        setDrawingPoints((prev) => [...prev, info.coordinate as number[]]);
-        return true;
-      }
-
-      // Feature selection
-      if (info.object && onFeatureClick) {
-        onFeatureClick(info.object as GeoJSONFeature);
-        return true;
-      }
-
-      return false;
-    },
-    [onFeatureClick, contextMenu.isOpen, drawingMode]
-  );
-
-  const finishDrawing = () => {
-    if (drawingPoints.length < 3) {
-      // Need at least 3 points for a polygon
-       getToaster().then(toaster => toaster.show({
-        message: 'Need at least 3 points for a zone',
-        intent: Intent.WARNING,
-      }));
-      return;
-    }
-
-    // Close the ring
-    const points = [...drawingPoints];
-    if (points[0][0] !== points[points.length - 1][0] || points[0][1] !== points[points.length - 1][1]) {
-      points.push(points[0]);
-    }
-
-    const geometry: GeoJSON.Polygon = {
-      type: 'Polygon',
-      coordinates: [points],
-    };
-
-    setPrecisionInputModal({
-      isOpen: true,
-      longitude: points[0][0],
-      latitude: points[0][1],
-      mode: 'polygon',
-      initialGeometry: geometry
+    const map = new Map({
+      basemap: "dark-gray-vector"
     });
 
-    setDrawingMode(false);
-    setDrawingPoints([]);
-  };
+    const graphicsLayer = new GraphicsLayer();
+    const sketchLayer = new GraphicsLayer();
+    map.addMany([graphicsLayer, sketchLayer]);
 
-  const cancelDrawing = () => {
-    setDrawingMode(false);
-    setDrawingPoints([]);
-  };
+    graphicsLayerRef.current = graphicsLayer;
+    sketchLayerRef.current = sketchLayer;
 
-  // Create a new feature from precision input
+    const view = new MapView({
+      container: mapDiv.current,
+      map: map,
+      center: [-122.4194, 37.7749],
+      zoom: 12
+    });
+
+    viewRef.current = view;
+
+    // Initialize SketchViewModel
+    const sketchVM = new SketchViewModel({
+      view: view,
+      layer: sketchLayer,
+      polygonSymbol: {
+        type: "simple-fill",
+        color: [150, 150, 150, 0.2],
+        outline: { color: [255, 255, 255], width: 2 }
+      },
+      pointSymbol: {
+        type: "simple-marker",
+        style: "circle",
+        size: 10,
+        color: [255, 255, 255]
+      }
+    });
+
+    sketchVM.on("create", (event) => {
+      if (event.state === "complete") {
+        // Open modal with geometry
+        const graphic = event.graphic;
+        let geoJsonGeom: GeoJSON.Geometry;
+
+        if (graphic.geometry.type === "polygon") {
+          const poly = graphic.geometry as Polygon;
+          geoJsonGeom = {
+            type: "Polygon",
+            coordinates: poly.rings
+          };
+
+          // Get centroid for modal position? Or just center of extent
+          const center = poly.extent.center;
+          setPrecisionInputModal({
+            isOpen: true,
+            longitude: center.longitude,
+            latitude: center.latitude,
+            mode: 'polygon',
+            initialGeometry: geoJsonGeom
+          });
+        } else if (graphic.geometry.type === "point") {
+           const pt = graphic.geometry as Point;
+           geoJsonGeom = {
+             type: "Point",
+             coordinates: [pt.longitude, pt.latitude]
+           };
+           setPrecisionInputModal({
+            isOpen: true,
+            longitude: pt.longitude,
+            latitude: pt.latitude,
+            mode: 'point',
+            initialGeometry: geoJsonGeom
+          });
+        }
+
+        // Clear sketch after a short delay or keep it?
+        // We usually want to clear it because the modal will create a NEW asset which comes back via props.
+        sketchLayer.remove(graphic);
+      }
+    });
+
+    sketchVMRef.current = sketchVM;
+
+    // Event handlers
+    view.on("hold", (event) => {
+      // Long press context menu
+      const point = view.toMap(event.mapPoint);
+      // Use native event for screen coordinates if available, otherwise fallback to x/y relative to view
+      // For hold, event.x/y are view coords. If view is offset, we might need correction.
+      // But hold event doesn't always give native event easily?
+      // Actually, let's rely on x/y and ensure MapContextMenu uses absolute relative to container?
+      // No, I switched MapContextMenu to fixed.
+      // I need clientX/Y.
+      // event.native does not exist on "hold" event in some versions?
+      // Let's check properties.
+
+      // For simplicity, if the map fills the rest of the screen, x/y + offset might work.
+      // But let's try to use event.x + mapDiv.current.getBoundingClientRect().left?
+      const rect = mapDiv.current?.getBoundingClientRect();
+      const screenX = rect ? event.x + rect.left : event.x;
+      const screenY = rect ? event.y + rect.top : event.y;
+
+      setContextMenu({
+        isOpen: true,
+        x: screenX,
+        y: screenY,
+        longitude: point.longitude,
+        latitude: point.latitude
+      });
+    });
+
+    view.on("click", (event) => {
+      // Close context menu if open
+      setContextMenu(prev => {
+        if (prev.isOpen) return { ...prev, isOpen: false };
+        return prev;
+      });
+
+      // Check for feature click
+      view.hitTest(event).then((response) => {
+        const graphicHit = response.results.find(
+          (result) => result.layer === graphicsLayer
+        );
+
+        if (graphicHit && graphicHit.type === "graphic") {
+          const graphic = graphicHit.graphic;
+          if (onFeatureClickRef.current && graphic.attributes) {
+            // Reconstruct GeoJSON feature
+            const feature: GeoJSONFeature = {
+                type: 'Feature',
+                geometry: {
+                    type: graphic.geometry.type === 'point' ? 'Point' : 'Polygon', // Simplified
+                    coordinates: []
+                } as any,
+                properties: graphic.attributes as any
+            };
+            onFeatureClickRef.current(feature);
+          }
+        }
+      });
+    });
+
+    // Right click handler
+    view.on("pointer-down", (event) => {
+       if (event.button === 2) { // Right click
+           event.stopPropagation();
+           const mapPoint = view.toMap({ x: event.x, y: event.y });
+
+           const rect = mapDiv.current?.getBoundingClientRect();
+           const screenX = rect ? event.x + rect.left : event.x;
+           const screenY = rect ? event.y + rect.top : event.y;
+
+           setContextMenu({
+               isOpen: true,
+               x: screenX,
+               y: screenY,
+               longitude: mapPoint.longitude,
+               latitude: mapPoint.latitude
+           });
+       }
+    });
+
+    return () => {
+      if (view) {
+        view.destroy();
+      }
+    };
+  }, []); // Run once
+
+  // Update Data
+  useEffect(() => {
+    if (!graphicsLayerRef.current) return;
+
+    const layer = graphicsLayerRef.current;
+    layer.removeAll();
+
+    // Filter data
+    const features = visibleLayers
+      ? data.features.filter((f) => visibleLayers.has(f.properties.type))
+      : data.features;
+
+    const graphics = features
+      .map(geoJSONToGraphic)
+      .filter((g): g is Graphic => g !== null);
+
+    layer.addMany(graphics);
+  }, [data, visibleLayers]);
+
+  // Create Asset
   const handlePrecisionCreate = async (data: {
     name: string;
     type: AssetType;
@@ -268,218 +361,30 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
     }
   };
 
-  // Update an existing feature
-  const handleUpdateFeature = async (
-    id: string,
-    data: {
-      name: string;
-      type: AssetType;
-      status: AssetStatus;
-      geometry: GeoJSON.Geometry;
-      properties?: Record<string, any>;
-    }
-  ) => {
-    try {
-      await updateAsset(id, data);
-      (await getToaster()).show({
-        message: 'Feature updated',
-        intent: Intent.SUCCESS,
-        icon: 'tick',
+  // Actions
+  const handleCreatePoint = (lng: number, lat: number) => {
+      setPrecisionInputModal({
+          isOpen: true,
+          longitude: lng,
+          latitude: lat,
+          mode: 'point'
       });
-    } catch (error) {
-      console.error('Error updating asset:', error);
-      (await getToaster()).show({
-        message: 'Failed to update feature',
-        intent: Intent.DANGER,
-        icon: 'error',
-      });
-    }
   };
 
-  // Delete a feature
-  const handleDeleteFeature = async (id: string) => {
-    try {
-      await deleteAsset(id);
-      (await getToaster()).show({
-        message: 'Feature deleted',
-        intent: Intent.SUCCESS,
-        icon: 'trash',
-      });
-    } catch (error) {
-      console.error('Error deleting asset:', error);
-      (await getToaster()).show({
-        message: 'Failed to delete feature',
-        intent: Intent.DANGER,
-        icon: 'error',
-      });
-    }
+  const handleCreateZone = () => {
+      // Start drawing polygon
+      if (sketchVMRef.current) {
+          sketchVMRef.current.create("polygon");
+          (getToaster()).then(t => t.show({
+              message: "Click on map to draw polygon. Double-click to finish.",
+              intent: Intent.PRIMARY
+          }));
+      }
   };
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if typing in an input
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-        return;
-      }
-
-      switch (e.key.toLowerCase()) {
-        case 'escape':
-          if (drawingMode) {
-             cancelDrawing();
-          } else {
-             setPrecisionInputModal((prev) => ({ ...prev, isOpen: false }));
-             if (editFeature && onEditComplete) {
-               onEditComplete();
-             }
-          }
-          break;
-        case 'i':
-          if (!drawingMode) {
-            setPrecisionInputModal({
-              isOpen: true,
-              longitude: viewState.longitude,
-              latitude: viewState.latitude,
-              mode: 'point',
-            });
-          }
-          break;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [viewState, editFeature, onEditComplete, drawingMode]);
-
-  // Create Deck.gl layers
-  const layers: any[] = [
-    new GeoJsonLayer({
-      id: 'geojson-layer',
-      data: filteredData as any,
-
-      // Styling
-      filled: true,
-      stroked: true,
-
-      // Dynamic styling based on feature properties
-      getFillColor: (f: any) => getFeatureColor(f as GeoJSONFeature),
-      getLineColor: (f: any) => getFeatureColor(f as GeoJSONFeature),
-      getLineWidth: (f: any) => getLineWidth(f as GeoJSONFeature),
-      getPointRadius: (f: any) => getPointRadius(f as GeoJSONFeature),
-
-      // Interaction
-      pickable: true,
-      autoHighlight: true,
-      highlightColor: [255, 255, 255, 100],
-
-      // Click handler for feature selection
-      onClick: handleClick,
-
-      // Hover handler
-      onHover: (info) => setHoverInfo(info),
-
-      // Performance
-      updateTriggers: {
-        getFillColor: [filteredData],
-        getLineColor: [filteredData],
-        getPointRadius: [filteredData],
-      },
-    }),
-  ];
-
-  // Add drawing layer if active
-  if (drawingMode && drawingPoints.length > 0) {
-    const drawingLayer = new GeoJsonLayer({
-      id: 'drawing-layer',
-      data: {
-        type: 'FeatureCollection',
-        features: [
-          {
-            type: 'Feature',
-            geometry: {
-              type: 'LineString', // Use LineString while drawing, visualize as Polygon if closed? Or just lines
-              coordinates: drawingPoints,
-            },
-            properties: {},
-          },
-          // Add points for vertices
-          ...drawingPoints.map((pt, i) => ({
-             type: 'Feature',
-             geometry: { type: 'Point', coordinates: pt },
-             properties: { index: i }
-          }))
-        ],
-      },
-      filled: false,
-      stroked: true,
-      getLineColor: [255, 255, 0, 255],
-      getLineWidth: 2,
-      getPointRadius: 5,
-      getFillColor: [255, 255, 0, 100],
-    });
-    layers.push(drawingLayer);
-  }
 
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative' }}
-         onContextMenu={(e) => {
-             e.preventDefault();
-             if (deckRef.current && deckRef.current.deck) {
-                 // Calculate position relative to the canvas/viewport
-                 const deck = deckRef.current.deck;
-                 const canvas = deck.canvas;
-                 if (canvas) {
-                     const rect = canvas.getBoundingClientRect();
-                     const x = e.clientX - rect.left;
-                     const y = e.clientY - rect.top;
-
-                     // Get viewport
-                     const viewport = deck.viewManager.getViewports()[0];
-                     if (viewport) {
-                         const coords = viewport.unproject([x, y]);
-                         if (coords) {
-                             setContextMenu({
-                                 isOpen: true,
-                                 x: e.clientX,
-                                 y: e.clientY,
-                                 longitude: coords[0],
-                                 latitude: coords[1],
-                             });
-                         }
-                     }
-                 }
-             }
-         }}
-    >
-      <DeckGL
-        ref={deckRef}
-        viewState={viewState}
-        onViewStateChange={({ viewState }) => setViewState(viewState as ViewState)}
-        controller={{
-           doubleClickZoom: !drawingMode, // Disable double click zoom when drawing
-        }}
-        layers={layers}
-        getCursor={() => {
-          if (drawingMode) return 'crosshair';
-          return hoverInfo?.object ? 'pointer' : 'grab';
-        }}
-        onClick={handleClick} // Use onClick instead of passing it to GeoJsonLayer if we want to capture map clicks
-        onDragStart={handleTouchStart} // For touch devices
-        onDragEnd={handleTouchEnd}
-        onTouchStart={handleTouchStart} // DeckGL forwards these?
-        onTouchEnd={handleTouchEnd}
-        onTouchMove={handleTouchMove}
-      >
-        
-        <Map
-          mapboxAccessToken={MAPBOX_TOKEN}
-          mapStyle="mapbox://styles/mapbox/dark-v11"
-          attributionControl={false}
-          reuseMaps
-        />
-
-      </DeckGL>
-
+    <div style={{ width: '100%', height: '100%', position: 'relative' }} onContextMenu={(e) => e.preventDefault()}>
+      <div ref={mapDiv} style={{ width: '100%', height: '100%' }} />
 
       {contextMenu.isOpen && (
         <MapContextMenu
@@ -487,24 +392,8 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
           y={contextMenu.y}
           longitude={contextMenu.longitude}
           latitude={contextMenu.latitude}
-          onCreatePoint={(lng, lat) => {
-            setPrecisionInputModal({
-              isOpen: true,
-              longitude: lng,
-              latitude: lat,
-              mode: 'point',
-            });
-          }}
-          onCreateZone={(lng, lat) => {
-             // Start drawing mode
-             setDrawingMode(true);
-             setDrawingPoints([[lng, lat]]);
-             getToaster().then(t => t.show({
-                message: 'Click to add points. Click "Finish" when done.',
-                intent: Intent.PRIMARY,
-                icon: 'edit'
-             }));
-          }}
+          onCreatePoint={handleCreatePoint}
+          onCreateZone={handleCreateZone}
           onPrecisionInput={(lng, lat) => {
             setPrecisionInputModal({
               isOpen: true,
@@ -515,83 +404,22 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
           }}
           onCopyLocation={(lng, lat) => {
              const text = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-             navigator.clipboard.writeText(text).then(() => {
-                getToaster().then(t => t.show({
+             navigator.clipboard.writeText(text).then(async () => {
+                (await getToaster()).show({
                    message: 'Coordinates copied to clipboard',
                    intent: Intent.SUCCESS,
                    icon: 'clipboard'
-                }));
+                });
              });
           }}
           onClose={() => setContextMenu(prev => ({ ...prev, isOpen: false }))}
         />
       )}
 
-      {/* Drawing Toolbar / Finish Button */}
-      {drawingMode && (
-         <div
-            style={{
-                position: 'absolute',
-                top: '20px',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                zIndex: 1100,
-                display: 'flex',
-                gap: '10px',
-                backgroundColor: 'rgba(0,0,0,0.8)',
-                padding: '10px',
-                borderRadius: '8px'
-            }}
-         >
-             <span style={{ color: 'white', alignSelf: 'center', fontWeight: 'bold' }}>
-                 Drawing Zone ({drawingPoints.length} points)
-             </span>
-             <Button intent={Intent.SUCCESS} onClick={finishDrawing} icon="tick">Finish</Button>
-             <Button intent={Intent.DANGER} onClick={cancelDrawing} icon="cross">Cancel</Button>
-         </div>
-      )}
-
-      {/* Precision Input Toolbar Button - Only show if not drawing */}
-      {!drawingMode && (
-      <div
-        style={{
-          position: 'absolute',
-          left: '50%',
-          bottom: '20px',
-          transform: 'translateX(-50%)',
-          zIndex: 1100,
-        }}
-      >
-        <button
-          onClick={() =>
-            setPrecisionInputModal({
-              isOpen: true,
-              longitude: viewState.longitude,
-              latitude: viewState.latitude,
-              mode: 'point',
-            })
-          }
-          style={{
-            backgroundColor: 'rgba(30, 30, 30, 0.95)',
-            color: 'white',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-            borderRadius: '4px',
-            padding: '8px 16px',
-            cursor: 'pointer',
-            fontSize: '13px',
-            fontWeight: 'bold',
-          }}
-        >
-          Precision Input (I)
-        </button>
-      </div>
-      )}
-
-      {/* Precision Input Modal */}
       <PrecisionInputModal
-        key={`${precisionInputModal.isOpen}-${precisionInputModal.mode}-${precisionInputModal.longitude}-${precisionInputModal.latitude}`}
+        key={`${precisionInputModal.isOpen}-${precisionInputModal.mode}`}
         isOpen={precisionInputModal.isOpen}
-        onClose={() => setPrecisionInputModal((prev) => ({ ...prev, isOpen: false }))}
+        onClose={() => setPrecisionInputModal(prev => ({ ...prev, isOpen: false }))}
         onSave={handlePrecisionCreate}
         initialLongitude={precisionInputModal.longitude}
         initialLatitude={precisionInputModal.latitude}
@@ -599,42 +427,19 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
         initialGeometry={precisionInputModal.initialGeometry}
       />
 
-      {/* Edit Feature Panel */}
       <EditFeaturePanel
         feature={editFeature || null}
         isOpen={!!editFeature}
-        onClose={() => {
-          if (onEditComplete) onEditComplete();
+        onClose={() => { if (onEditComplete) onEditComplete(); }}
+        onSave={async (id, data) => {
+            await updateAsset(id, data);
+            (await getToaster()).show({ message: "Updated", intent: Intent.SUCCESS });
         }}
-        onSave={handleUpdateFeature}
-        onDelete={handleDeleteFeature}
+        onDelete={async (id) => {
+            await deleteAsset(id);
+            (await getToaster()).show({ message: "Deleted", intent: Intent.SUCCESS });
+        }}
       />
-
-      {/* Hover tooltip */}
-      {hoverInfo?.object && (
-        <div
-          style={{
-            position: 'absolute',
-            left: hoverInfo.x,
-            top: hoverInfo.y,
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            color: 'white',
-            padding: '8px 12px',
-            borderRadius: '4px',
-            pointerEvents: 'none',
-            transform: 'translate(-50%, -100%)',
-            marginTop: '-10px',
-            fontSize: '12px',
-            whiteSpace: 'nowrap',
-            zIndex: 1000,
-          }}
-        >
-          <strong>{(hoverInfo.object as GeoJSONFeature).properties.name}</strong>
-          <br />
-          {(hoverInfo.object as GeoJSONFeature).properties.type} •{' '}
-          {(hoverInfo.object as GeoJSONFeature).properties.status}
-        </div>
-      )}
 
       {/* Feature count badge */}
       <div
@@ -650,7 +455,7 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
           fontWeight: 'bold',
         }}
       >
-        {filteredData.features.length} assets
+        {data.features.length} assets
       </div>
     </div>
   );
