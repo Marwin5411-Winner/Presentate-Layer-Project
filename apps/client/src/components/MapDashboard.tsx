@@ -106,12 +106,6 @@ const getPointRadius = (type: string, status: string): number => {
   return type === 'vehicle' ? 8 : type === 'incident' ? 10 : 6;
 };
 
-
-
-//Get Menu
-
-
-
 export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature, onEditComplete }: MapDashboardProps) {
   const mapDiv = useRef<HTMLDivElement>(null);
   const viewRef = useRef<MapView | null>(null);
@@ -150,7 +144,7 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
     if (!mapDiv.current) return;
 
     const map = new Map({
-      basemap: "dark-gray-vector"
+      basemap: "osm" // Use OSM to avoid API key requirement
     });
 
     const graphicsLayer = new GraphicsLayer();
@@ -163,8 +157,8 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
     const view = new MapView({
       container: mapDiv.current,
       map: map,
-      center: [-122.4194, 37.7749],
-      zoom: 12
+      center: [100.5018, 13.7563], // Thailand (Bangkok)
+      zoom: 6
     });
 
     viewRef.current = view;

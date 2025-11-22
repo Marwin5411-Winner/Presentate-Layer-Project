@@ -152,7 +152,7 @@ export function AssetDrawer({ isOpen, onClose, asset, onEdit }: AssetDrawerProps
                 <span style={{ fontWeight: 'bold' }}>Type:</span>
                 <span>{geometry.type}</span>
               </div>
-              {geometry.type === 'Point' && (
+              {geometry.type === 'Point' && Array.isArray(geometry.coordinates) && geometry.coordinates.length >= 2 && (
                 <>
                   <div
                     style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}
