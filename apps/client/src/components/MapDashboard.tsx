@@ -7,6 +7,9 @@ import SketchViewModel from '@arcgis/core/widgets/Sketch/SketchViewModel';
 import Point from '@arcgis/core/geometry/Point';
 import Polygon from '@arcgis/core/geometry/Polygon';
 import Polyline from '@arcgis/core/geometry/Polyline';
+import WebTileLayer from '@arcgis/core/layers/WebTileLayer';
+import Basemap from '@arcgis/core/Basemap';
+import * as webMercatorUtils from "@arcgis/core/geometry/support/webMercatorUtils";
 import { OverlayToaster, Intent } from '@blueprintjs/core';
 import '@arcgis/core/assets/esri/themes/dark/main.css';
 
@@ -47,10 +50,11 @@ const geoJSONToGraphic = (feature: GeoJSONFeature): Graphic | null => {
       size: getPointRadius(properties.type, properties.status),
       outline: { color: [255, 255, 255, 0.5], width: 1 }
     };
+    // Point constructor can take longitude/latitude directly
     return new Graphic({
       geometry: new Point({
-        longitude: geometry.coordinates[0],
-        latitude: geometry.coordinates[1]
+        longitude: geometry.coordinates[0] as number,
+        latitude: geometry.coordinates[1] as number
       }),
       symbol: symbol,
       attributes: properties
@@ -63,7 +67,24 @@ const geoJSONToGraphic = (feature: GeoJSONFeature): Graphic | null => {
     };
     return new Graphic({
       geometry: new Polygon({
-        rings: geometry.coordinates
+        rings: geometry.coordinates as number[][][],
+        spatialReference: { wkid: 4326 } // WGS84
+      }),
+      symbol: symbol,
+      attributes: properties
+    });
+  } else if (geometry.type === 'MultiPolygon') {
+    symbol = {
+      type: "simple-fill",
+      color: [...color.slice(0, 3), 0.4], // Transparent fill
+      outline: { color: color, width: 2 }
+    };
+    // Flatten MultiPolygon coordinates (number[][][][]) to rings (number[][][])
+    const coords = geometry.coordinates as number[][][][];
+    return new Graphic({
+      geometry: new Polygon({
+        rings: coords.flat(),
+        spatialReference: { wkid: 4326 } // WGS84
       }),
       symbol: symbol,
       attributes: properties
@@ -76,7 +97,8 @@ const geoJSONToGraphic = (feature: GeoJSONFeature): Graphic | null => {
     };
     return new Graphic({
       geometry: new Polyline({
-        paths: [geometry.coordinates]
+        paths: [geometry.coordinates as number[][]],
+        spatialReference: { wkid: 4326 } // WGS84
       }),
       symbol: symbol,
       attributes: properties
@@ -143,8 +165,22 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
   useEffect(() => {
     if (!mapDiv.current) return;
 
+    // Create custom dark basemap using CartoDB Dark Matter
+    const darkBasemap = new Basemap({
+      baseLayers: [
+        new WebTileLayer({
+          urlTemplate: "https://{subDomain}.basemaps.cartocdn.com/dark_all/{level}/{col}/{row}.png",
+          subDomains: ["a", "b", "c", "d"],
+          title: "Dark Matter",
+          copyright: '© OpenStreetMap contributors, © CARTO'
+        })
+      ],
+      title: "Dark Grey",
+      id: "dark-grey-custom"
+    });
+
     const map = new Map({
-      basemap: "osm" // Use OSM to avoid API key requirement
+      basemap: darkBasemap
     });
 
     const graphicsLayer = new GraphicsLayer();
@@ -187,14 +223,17 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
         let geoJsonGeom: GeoJSON.Geometry;
 
         if (graphic.geometry.type === "polygon") {
-          const poly = graphic.geometry as Polygon;
+          // Check if the geometry is in Web Mercator and convert if needed
+          const geometry = graphic.geometry.spatialReference.isWebMercator
+             ? webMercatorUtils.webMercatorToGeographic(graphic.geometry) as Polygon
+             : graphic.geometry as Polygon;
+
           geoJsonGeom = {
             type: "Polygon",
-            coordinates: poly.rings
+            coordinates: geometry.rings
           };
 
-          // Get centroid for modal position? Or just center of extent
-          const center = poly.extent.center;
+          const center = geometry.extent.center;
           setPrecisionInputModal({
             isOpen: true,
             longitude: center.longitude,
@@ -203,22 +242,23 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
             initialGeometry: geoJsonGeom
           });
         } else if (graphic.geometry.type === "point") {
-           const pt = graphic.geometry as Point;
+           const geometry = graphic.geometry.spatialReference.isWebMercator
+             ? webMercatorUtils.webMercatorToGeographic(graphic.geometry) as Point
+             : graphic.geometry as Point;
+
            geoJsonGeom = {
              type: "Point",
-             coordinates: [pt.longitude, pt.latitude]
+             coordinates: [geometry.longitude, geometry.latitude]
            };
            setPrecisionInputModal({
             isOpen: true,
-            longitude: pt.longitude,
-            latitude: pt.latitude,
+            longitude: geometry.longitude,
+            latitude: geometry.latitude,
             mode: 'point',
             initialGeometry: geoJsonGeom
           });
         }
 
-        // Clear sketch after a short delay or keep it?
-        // We usually want to clear it because the modal will create a NEW asset which comes back via props.
         sketchLayer.remove(graphic);
       }
     });
@@ -229,17 +269,6 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
     view.on("hold", (event) => {
       // Long press context menu
       const point = view.toMap(event.mapPoint);
-      // Use native event for screen coordinates if available, otherwise fallback to x/y relative to view
-      // For hold, event.x/y are view coords. If view is offset, we might need correction.
-      // But hold event doesn't always give native event easily?
-      // Actually, let's rely on x/y and ensure MapContextMenu uses absolute relative to container?
-      // No, I switched MapContextMenu to fixed.
-      // I need clientX/Y.
-      // event.native does not exist on "hold" event in some versions?
-      // Let's check properties.
-
-      // For simplicity, if the map fills the rest of the screen, x/y + offset might work.
-      // But let's try to use event.x + mapDiv.current.getBoundingClientRect().left?
       const rect = mapDiv.current?.getBoundingClientRect();
       const screenX = rect ? event.x + rect.left : event.x;
       const screenY = rect ? event.y + rect.top : event.y;
@@ -326,6 +355,16 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
     const graphics = features
       .map(geoJSONToGraphic)
       .filter((g): g is Graphic => g !== null);
+
+    // Sort: Polygons (fill) -> Lines -> Points (marker)
+    // This ensures points render on top of polygons
+    graphics.sort((a, b) => {
+       const typeA = a.geometry.type;
+       const typeB = b.geometry.type;
+       // polygon < polyline < point
+       const score = (type: string) => type === 'polygon' ? 0 : type === 'polyline' ? 1 : 2;
+       return score(typeA) - score(typeB);
+    });
 
     layer.addMany(graphics);
   }, [data, visibleLayers]);
