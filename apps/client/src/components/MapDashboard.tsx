@@ -36,28 +36,59 @@ const getToaster = async () => {
   return toasterInstance;
 };
 
+// Helper to check if coordinates are likely Web Mercator
+export const isWebMercator = (coords: any): boolean => {
+  try {
+    // Recursively find the first number
+    const findFirstCoord = (arr: any): number | null => {
+      if (!Array.isArray(arr)) return null;
+      if (arr.length > 0 && typeof arr[0] === 'number') return arr[0];
+      return findFirstCoord(arr[0]);
+    };
+
+    const val = findFirstCoord(coords);
+    // If coordinate > 180 or < -180, it's likely Web Mercator (meters)
+    return val !== null && (Math.abs(val) > 180);
+  } catch (e) {
+    return false;
+  }
+};
+
 // Helper to convert GeoJSON feature to ArcGIS Graphic
-const geoJSONToGraphic = (feature: GeoJSONFeature): Graphic | null => {
+export const geoJSONToGraphic = (feature: GeoJSONFeature): Graphic | null => {
   const { geometry, properties } = feature;
 
+  // Handle case where properties might be malformed (e.g. array instead of object)
+  const safeProperties = Array.isArray(properties) ? properties[0] : (properties || {});
+  const type = safeProperties.type;
+  const status = safeProperties.status;
+
   let symbol;
-  const color = getFeatureColor(properties.type, properties.status);
+  const color = getFeatureColor(type, status);
+
+  // Determine spatial reference based on coordinate values
+  const isMercator = isWebMercator(geometry.coordinates);
+  const spatialReference = { wkid: isMercator ? 3857 : 4326 };
 
   if (geometry.type === 'Point') {
     symbol = {
       type: "simple-marker",
       color: color,
-      size: getPointRadius(properties.type, properties.status),
+      size: getPointRadius(type, status),
       outline: { color: [255, 255, 255, 0.5], width: 1 }
     };
-    // Point constructor can take longitude/latitude directly
+
+    const coords = geometry.coordinates as number[];
+
+    // If Mercator, use x/y. If WGS84, use longitude/latitude
+    const geomProps = isMercator
+      ? { x: coords[0], y: coords[1], spatialReference }
+      : { longitude: coords[0], latitude: coords[1] };
+
     return new Graphic({
-      geometry: new Point({
-        longitude: geometry.coordinates[0] as number,
-        latitude: geometry.coordinates[1] as number
-      }),
+      geometry: new Point(geomProps),
       symbol: symbol,
-      attributes: properties
+      attributes: safeProperties
     });
   } else if (geometry.type === 'Polygon') {
     symbol = {
@@ -68,10 +99,10 @@ const geoJSONToGraphic = (feature: GeoJSONFeature): Graphic | null => {
     return new Graphic({
       geometry: new Polygon({
         rings: geometry.coordinates as number[][][],
-        spatialReference: { wkid: 4326 } // WGS84
+        spatialReference: spatialReference
       }),
       symbol: symbol,
-      attributes: properties
+      attributes: safeProperties
     });
   } else if (geometry.type === 'MultiPolygon') {
     symbol = {
@@ -84,10 +115,10 @@ const geoJSONToGraphic = (feature: GeoJSONFeature): Graphic | null => {
     return new Graphic({
       geometry: new Polygon({
         rings: coords.flat(),
-        spatialReference: { wkid: 4326 } // WGS84
+        spatialReference: spatialReference
       }),
       symbol: symbol,
-      attributes: properties
+      attributes: safeProperties
     });
   } else if (geometry.type === 'LineString') {
     symbol = {
@@ -98,10 +129,10 @@ const geoJSONToGraphic = (feature: GeoJSONFeature): Graphic | null => {
     return new Graphic({
       geometry: new Polyline({
         paths: [geometry.coordinates as number[][]],
-        spatialReference: { wkid: 4326 } // WGS84
+        spatialReference: spatialReference
       }),
       symbol: symbol,
-      attributes: properties
+      attributes: safeProperties
     });
   }
 
@@ -224,9 +255,14 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
 
         if (graphic.geometry.type === "polygon") {
           // Check if the geometry is in Web Mercator and convert if needed
-          const geometry = graphic.geometry.spatialReference.isWebMercator
-             ? webMercatorUtils.webMercatorToGeographic(graphic.geometry) as Polygon
-             : graphic.geometry as Polygon;
+          // Double check for WebMercator-like coordinates even if spatialReference says otherwise
+          let geometry = graphic.geometry as Polygon;
+          const firstRing = geometry.rings[0];
+          const isMercatorCoords = firstRing && firstRing[0] && (Math.abs(firstRing[0][0]) > 180);
+
+          if (geometry.spatialReference.isWebMercator || isMercatorCoords) {
+            geometry = webMercatorUtils.webMercatorToGeographic(geometry) as Polygon;
+          }
 
           geoJsonGeom = {
             type: "Polygon",
@@ -242,9 +278,12 @@ export function MapDashboard({ data, onFeatureClick, visibleLayers, editFeature,
             initialGeometry: geoJsonGeom
           });
         } else if (graphic.geometry.type === "point") {
-           const geometry = graphic.geometry.spatialReference.isWebMercator
-             ? webMercatorUtils.webMercatorToGeographic(graphic.geometry) as Point
-             : graphic.geometry as Point;
+           let geometry = graphic.geometry as Point;
+           const isMercatorCoords = Math.abs(geometry.x) > 180;
+
+           if (geometry.spatialReference.isWebMercator || isMercatorCoords) {
+             geometry = webMercatorUtils.webMercatorToGeographic(geometry) as Point;
+           }
 
            geoJsonGeom = {
              type: "Point",
